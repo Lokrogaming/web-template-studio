@@ -221,10 +221,14 @@ async function refreshGh() {
   if (s.connected) {
     $('#ghState').innerHTML = `✓ Verbunden als <b>${esc(s.user.login)}</b>${s.ghCli ? ' (gh CLI erkannt)' : ''}`;
     $('#ghLoginBox').classList.add('hidden');
+    $('#oauthBox').classList.add('hidden');
+    $('#oauthBtn').classList.remove('hidden');
+    $('#oauthWait').classList.add('hidden');
     $('#ghLogout').classList.remove('hidden');
   } else {
     $('#ghState').textContent = '✗ Nicht verbunden. ' + (s.hint || '');
     $('#ghLoginBox').classList.remove('hidden');
+    $('#oauthBox').classList.toggle('hidden', !(CFG && CFG.oauthConfigured));
     $('#ghLogout').classList.add('hidden');
   }
   return s;
@@ -326,6 +330,16 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshGh();
   });
   $('#ghLogout').addEventListener('click', async () => { await window.studio.githubLogout(); refreshGh(); });
+  $('#oauthBtn').addEventListener('click', async () => {
+    $('#oauthBtn').classList.add('hidden');
+    $('#oauthWait').classList.remove('hidden');
+    const r = await window.studio.oauthStart();
+    $('#oauthBtn').classList.remove('hidden');
+    $('#oauthWait').classList.add('hidden');
+    toast(r.ok ? 'Verbunden – viel Spaß mit SiteSmith.' : 'Anmeldung: ' + (r.error || 'fehlgeschlagen'), r.ok ? 4000 : 6000);
+    refreshGh();
+  });
+  $('#oauthCancel').addEventListener('click', async () => { await window.studio.oauthCancel(); });
   $('#nodeInstallBtn').addEventListener('click', async () => {
     toast('Installiere Node.js LTS via winget … (kann dauern)');
     const r = await window.studio.nodeInstall();

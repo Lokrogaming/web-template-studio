@@ -8,7 +8,7 @@ Desktop-Marketplace-App (Electron) + Website (GitHub Pages) für Website-Templat
   - oben, enabled: **Per Workflow automatisieren (empfohlen)**
   - unten, muted: **.zip laden (Für Erfahrene)**
 - **Detail-Panel (rechts):** großes Preview-Bild, alle Infos aus der Config (Art, Sprachen, Description, Version, Author, Latest updated), Installationsmethode, GitHub-Status.
-- **Workflow:** prüft GitHub-Verknüpfung (falls nein → Anmeldung per Token), Repo-Erstellung (frei umbenennbar) **inkl. auto-generiertem README mit Deploy-Anleitung**, bei HTML automatische Pages-Verknüpfung, Node.js/npm-Check (ggf. Auto-Install via winget), Preview (localhost, Anzeige per `webview`).
+- **Workflow:** prüft GitHub-Verknüpfung (falls nein → Anmeldung im Browser per OAuth-Web-Flow mit PKCE, Fallback: Token), Repo-Erstellung (frei umbenennbar) **inkl. auto-generiertem README mit Deploy-Anleitung**, bei HTML automatische Pages-Verknüpfung, Node.js/npm-Check (ggf. Auto-Install via winget), Preview (localhost, Anzeige per `webview`).
 - **Installiert-Ansicht:** Verlauf der Workflow-Installationen (lokal) mit Ordner-/Repo-/Pages-/Preview-Aktionen.
 - **Verified:** `verified: true` im Mapping → Icon auf Card + Detail-Panel.
 - **Website:** `website/` (gespiegelt `docs/` für Pages-Legacy) – nur Infoseite + Installer-Download-Button, **aktuell deaktiviert**, bis die App fertig aufgesetzt ist.

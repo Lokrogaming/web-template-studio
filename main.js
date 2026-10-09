@@ -10,6 +10,10 @@ const AdmZip = require('adm-zip');
 const TEMPLATE_REPO = 'Lokrogaming/web-templates';
 const TEMPLATE_BRANCH = 'main';
 const APP_NAME = 'SiteSmith';
+// OAuth-App (Developer settings → OAuth Apps): Callback-URL http://127.0.0.1/callback eintragen.
+// Nach dem Erstellen die Client-ID hier eintragen – kein Secret nötig (PKCE + Loopback).
+const GITHUB_OAUTH_CLIENT_ID = '';
+const GITHUB_OAUTH_SCOPES = 'repo workflow read:user';
 const MAPPING_URL = `https://raw.githubusercontent.com/${TEMPLATE_REPO}/${TEMPLATE_BRANCH}/templates.json`;
 const ZIP_BASE_URL = `https://raw.githubusercontent.com/${TEMPLATE_REPO}/${TEMPLATE_BRANCH}/templates/`;
 const RAW_BASE_URL = `https://raw.githubusercontent.com/${TEMPLATE_REPO}/${TEMPLATE_BRANCH}/`;
@@ -159,6 +163,7 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 
 ipcMain.handle('get-config', async () => ({
   appName: APP_NAME,
+  oauthConfigured: GITHUB_OAUTH_CLIENT_ID.length > 0,
   templateRepo: TEMPLATE_REPO,
   branch: TEMPLATE_BRANCH,
   mappingUrl: MAPPING_URL,
@@ -201,6 +206,122 @@ ipcMain.handle('github-save-token', async (_e, token) => {
 });
 
 ipcMain.handle('github-logout', async () => { clearToken(); return { ok: true }; });
+
+// ---------- OAuth Web-Flow (Browser + Loopback, PKCE, kein Secret) ----------
+let oauthPending = null;
+
+function closeOAuthServer() {
+  if (oauthPending) {
+    if (oauthPending.timer) clearTimeout(oauthPending.timer);
+    try { oauthPending.server.close(); } catch {}
+    oauthPending = null;
+  }
+}
+
+const oauthHtml = (msg) => `<!doctype html><html lang="de"><head><meta charset="utf-8"><title>${APP_NAME}</title></head><body style="background:#09090B;color:#FAFAFA;font-family:system-ui;display:flex;height:100vh;align-items:center;justify-content:center;margin:0"><div style="text-align:center;max-width:420px"><h2>${msg}</h2><p style="color:#A1A1AA">Du kannst dieses Fenster schließen und zu ${APP_NAME} zurückkehren.</p></div></body></html>`;
+const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function exchangeOAuthCode(code, verifier, redirectUri) {
+  return new Promise((resolve) => {
+    const body = JSON.stringify({ client_id: GITHUB_OAUTH_CLIENT_ID, code, redirect_uri: redirectUri, code_verifier: verifier });
+    const req = https.request({
+      hostname: 'github.com', path: '/login/oauth/access_token', method: 'POST',
+      headers: { 'User-Agent': 'sitesmith', 'Accept': 'application/json', 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    }, (res) => {
+      let raw = '';
+      res.on('data', (c) => (raw += c));
+      res.on('end', async () => {
+        try {
+          const j = JSON.parse(raw);
+          if (!j.access_token) return resolve({ ok: false, error: j.error_description || j.error || 'Kein Token erhalten.' });
+          const me = await githubApi('/user', j.access_token);
+          resolve({
+            ok: true, token: j.access_token,
+            user: me.json && me.json.login ? { login: me.json.login, name: me.json.name, avatar: me.json.avatar_url } : null,
+          });
+        } catch (e) { resolve({ ok: false, error: e.message }); }
+      });
+    });
+    req.on('error', (e) => resolve({ ok: false, error: e.message }));
+    req.write(body);
+    req.end();
+  });
+}
+
+ipcMain.handle('github-oauth-start', async () => {
+  if (!GITHUB_OAUTH_CLIENT_ID) {
+    return { ok: false, error: 'Keine OAuth Client-ID konfiguriert (GITHUB_OAUTH_CLIENT_ID in main.js).' };
+  }
+  closeOAuthServer();
+  const crypto = require('crypto');
+  const b64url = (b) => Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const state = b64url(crypto.randomBytes(16));
+  const verifier = b64url(crypto.randomBytes(32));
+  const challenge = b64url(crypto.createHash('sha256').update(verifier).digest());
+
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      try {
+        const u = new URL(req.url, 'http://127.0.0.1');
+        if (u.pathname !== '/callback') { res.statusCode = 404; res.end('not found'); return; }
+        const p = oauthPending;
+        if (!p) { res.statusCode = 400; res.end('expired'); return; }
+        const err = u.searchParams.get('error');
+        if (err) {
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          res.end(oauthHtml('Abgebrochen.'));
+          const r = p.resolve;
+          closeOAuthServer();
+          r({ ok: false, error: u.searchParams.get('error_description') || err });
+          return;
+        }
+        const code = u.searchParams.get('code');
+        if (!code || u.searchParams.get('state') !== p.state) {
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          res.end(oauthHtml('Ungültige Antwort – bitte erneut versuchen.'));
+          return;
+        }
+        exchangeOAuthCode(code, p.verifier, p.redirectUri).then((tok) => {
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          if (!tok.ok) {
+            res.end(oauthHtml('Fehler: ' + escHtml(tok.error)));
+          } else {
+            writeToken(tok.token);
+            res.end(oauthHtml('✓ ' + APP_NAME + ' ist mit GitHub verbunden.'));
+          }
+          const r = p.resolve;
+          closeOAuthServer();
+          r(tok.ok ? { ok: true, user: tok.user } : { ok: false, error: tok.error });
+        });
+      } catch (e) { try { res.statusCode = 500; res.end('error'); } catch {} }
+    });
+    server.listen(0, '127.0.0.1', async () => {
+      const redirectUri = `http://127.0.0.1:${server.address().port}/callback`;
+      oauthPending = {
+        server, resolve, state, verifier, redirectUri,
+        timer: setTimeout(() => {
+          const p = oauthPending;
+          closeOAuthServer();
+          if (p) p.resolve({ ok: false, error: 'Zeitüberschreitung – bitte erneut versuchen.' });
+        }, 5 * 60 * 1000),
+      };
+      const params = new URLSearchParams({
+        client_id: GITHUB_OAUTH_CLIENT_ID, redirect_uri: redirectUri,
+        scope: GITHUB_OAUTH_SCOPES, state,
+        code_challenge: challenge, code_challenge_method: 'S256',
+      });
+      await shell.openExternal('https://github.com/login/oauth/authorize?' + params.toString());
+    });
+    server.on('error', (e) => resolve({ ok: false, error: e.message }));
+  });
+});
+
+ipcMain.handle('github-oauth-cancel', async () => {
+  const p = oauthPending;
+  closeOAuthServer();
+  if (p) p.resolve({ ok: false, error: 'Abgebrochen.' });
+  return { ok: true };
+});
 
 ipcMain.handle('node-status', async () => {
   const node = await execFileAsync('node', ['-v']);

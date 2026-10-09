@@ -108,8 +108,12 @@
     <ol class="steps">
       <li><b>1. GitHub</b><div class="step-body">
         <p id="ghState">Prüfe …</p>
+        <div id="oauthBox" class="hidden">
+          <button id="oauthBtn" class="btn primary">Im Browser mit GitHub anmelden</button>
+          <p id="oauthWait" class="hidden">Warte auf den Browser … <button id="oauthCancel" class="btn ghost sm">Abbrechen</button></p>
+        </div>
         <div id="ghLoginBox" class="hidden">
-          <p>Lege ein <b>Personal Access Token</b> an (GitHub → Settings → Developer settings → Tokens, Scopes: <code>repo</code>, <code>workflow</code>) und füge es hier ein:</p>
+          <p class="small">Alternativ per <b>Personal Access Token</b> (Scopes: <code>repo</code>, <code>workflow</code>):</p>
           <div class="row"><input id="tokenInput" type="password" placeholder="ghp_…" /><button id="tokenSave" class="btn primary">Anmelden</button></div>
           <p class="small">Alternativ: <code>gh auth login --web</code> im Terminal. Das Token wird lokal gespeichert.</p>
         </div>
