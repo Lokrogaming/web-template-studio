@@ -92,6 +92,7 @@ const t = (name, cond) => { results.push([cond ? 'PASS' : 'FAIL', name]); };
   $('#instStartBtn').click();
   await sleep(30);
   t('Auth-Stage bei fehlendem GH', !$('#instStageAuth').classList.contains('hidden'));
+  t('Secret-Feld vorhanden', !!$('#instSecretInput') && !!$('#instSecretSave'));
   t('Noch kein Install-Aufruf', installCalls === 0);
 
   // PAT-Login -> weiter zu Progress -> Erfolg

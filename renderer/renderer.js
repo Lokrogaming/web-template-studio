@@ -468,7 +468,7 @@ async function instStart() {
   const targetDir = $('#targetInput').value.trim() || CFG.workspace;
   INST.opts = { targetDir, createRepo: $('#optRepo').checked, pages: $('#optPages').checked, readme: $('#optReadme').checked, repoName };
   // Kontext-Prereqs
-  if (INST.opts.createRepo && !GH.connected) { instStage('Auth'); return; }
+  if (INST.opts.createRepo && !GH.connected) { instStage('Auth'); paintSecret(); return; }
   if (needsNodeGuess(CURRENT) && !NODE.ok) { instStage('Node'); return; }
   runInstall();
 }
@@ -478,6 +478,11 @@ async function instAuthDone() {
   if (!GH.connected) { toast('Noch nicht verbunden – bitte Anmeldung abschließen.', 5000); return; }
   if (needsNodeGuess(CURRENT) && !NODE.ok) { instStage('Node'); return; }
   runInstall();
+}
+
+function paintSecret() {
+  const el = document.getElementById('instSecretState');
+  if (el) el.textContent = (CFG && CFG.oauthHasSecret) ? '✓ Client Secret hinterlegt.' : 'Kein Client Secret hinterlegt.';
 }
 
 async function runInstall() {
@@ -726,6 +731,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const r = await window.studio.githubSaveToken(v);
     if (r.ok) { $('#instTokenInput').value = ''; toast('Verbunden.'); instAuthDone(); }
     else toast('Anmeldung fehlgeschlagen: ' + r.error, 6000);
+  });
+  $('#instSecretSave').addEventListener('click', async () => {
+    const v = $('#instSecretInput').value.trim();
+    if (!v) { toast('Bitte Secret einfügen.'); return; }
+    const r = await window.studio.oauthSaveSecret(v);
+    if (r.ok) { $('#instSecretInput').value = ''; if (CFG) CFG.oauthHasSecret = true; paintSecret(); toast('Secret lokal gespeichert.'); }
+    else toast('Fehler: ' + (r.error || 'fehlgeschlagen'), 6000);
   });
   $('#instNodeBtn').addEventListener('click', () => { openSetup(false); });
   $('#instCancelBtn').addEventListener('click', instCancel);

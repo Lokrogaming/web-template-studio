@@ -102,6 +102,11 @@
       <p>Dafür braucht SiteSmith Zugriff auf dein GitHub-Konto (Repo erstellen, pushen, Pages).</p>
       <button id="instOauthBtn" class="btn primary big">Im Browser mit GitHub anmelden</button>
       <p id="instOauthWait" class="hidden sub">Warte auf den Browser … <button id="instOauthCancel" class="btn ghost sm">Abbrechen</button></p>
+      <details class="small"><summary>Falls GitHub ein Client Secret verlangt …</summary>
+        <div class="row tight"><input id="instSecretInput" type="password" placeholder="Client Secret einfügen" autocomplete="off" /><button id="instSecretSave" class="btn ghost sm">Speichern</button></div>
+        <p id="instSecretState" class="small"></p>
+        <p class="small">In den OAuth-App-Einstellungen auf GitHub unter „Client secrets“ generieren. Wird nur lokal auf deinem PC gespeichert.</p>
+      </details>
       <details class="small"><summary>Alternativ per Personal Access Token</summary>
         <div class="row tight"><input id="instTokenInput" type="password" placeholder="ghp_…" /><button id="instTokenSave" class="btn ghost sm">Speichern</button></div>
       </details>
