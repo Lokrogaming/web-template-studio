@@ -569,29 +569,59 @@ function cleanNpmEnv(base) {
   return env;
 }
 
-// npm install im Projektordner – nutzt gebündeltes oder System-Node
-async function npmInstall(cwd) {
+// Generischer npm-Aufruf (nur mit fest verdrahteten, statischen Args aufrufen – kein User-Input!)
+async function nodeTool(cwd, npmArgs, timeoutMs = 5 * 60 * 1000) {
   const st = await checkNode();
   if (!st.ok) throw new Error('Node.js fehlt oder ist zu alt (min. v' + NODE_MIN_MAJOR + ').');
   let cmd, args, env;
   if (st.source === 'bundled') {
     const marker = readNodeMarker();
-    cmd = path.join(path.dirname(marker.exe), 'npm.cmd');
-    args = ['install', '--no-audit', '--no-fund', '--loglevel=error'];
+    cmd = marker.exe;
+    args = [marker.npmCli, ...npmArgs];
     env = cleanNpmEnv({ ...process.env, PATH: path.dirname(marker.exe) + path.delimiter + process.env.PATH });
   } else {
-    // System-npm (.cmd) via cmd.exe mit statischen Args aufrufen
     cmd = 'cmd.exe';
-    args = ['/d', '/s', '/c', 'npm install --no-audit --no-fund --loglevel=error'];
+    args = ['/d', '/s', '/c', 'npm ' + npmArgs.join(' ')];
     env = cleanNpmEnv();
   }
-  const r = await execFileAsync(cmd, args, { cwd, env, timeout: 5 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 });
+  return execFileAsync(cmd, args, { cwd, env, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 });
+}
+
+async function npmInstall(cwd) {
+  const r = await nodeTool(cwd, ['install', '--no-audit', '--no-fund', '--loglevel=error']);
   const combined = String(r.stdout || '') + '\n' + String(r.stderr || '') + '\n' + String((r.error && r.error.message) || '');
   if (/EALLOWSCRIPTS/.test(combined)) {
     throw new Error('npm blockiert Install-Skripte (EALLOWSCRIPTS) durch vererbte Umgebung. SiteSmith auf den neuesten Stand bringen (Fix enthalten) und erneut versuchen.');
   }
   if (r.error) throw new Error('npm install fehlgeschlagen: ' + (r.stderr || r.error.message).slice(0, 600));
   return r;
+}
+
+async function npmRun(cwd, script) {
+  if (!/^[a-z0-9-]+$/i.test(script)) throw new Error('Ungültiges npm-Script.');
+  const r = await nodeTool(cwd, ['run', script, '--loglevel=error']);
+  if (r.error) throw new Error(`npm run ${script} fehlgeschlagen: ` + (r.stderr || r.error.message).slice(0, 600));
+  return r;
+}
+
+// Node-Projekt preview-fähig machen: vorhandenes dist/ nutzen, sonst install + build.
+// Gibt { root, note } zurück – note ist null wenn alles glatt lief.
+async function prepareNodePreview(dir) {
+  const pkgFile = path.join(dir, 'package.json');
+  if (!fs.existsSync(pkgFile)) return { root: dir, note: null };
+  const dist = path.join(dir, 'dist');
+  if (fs.existsSync(dist)) return { root: dist, note: null };
+  const st = await checkNode();
+  if (!st.ok) return { root: dir, note: 'Node.js fehlt – die Vorschau zeigt ggf. nur eine weiße Seite. Node.js über den Setup-Bildschirm einrichten.' };
+  let pkg = {};
+  try { pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8')); } catch {}
+  if (!pkg.scripts || !pkg.scripts.build) return { root: dir, note: 'Kein Build-Script – die Vorschau zeigt die Quellen (ggf. weiß).' };
+  if (!fs.existsSync(path.join(dir, 'node_modules'))) {
+    await npmInstall(dir);
+  }
+  await npmRun(dir, 'build');
+  if (fs.existsSync(dist)) return { root: dist, note: null };
+  return { root: dir, note: 'Build hat kein dist/ erzeugt – die Vorschau zeigt die Quellen.' };
 }
 
 ipcMain.handle('download-zip', async (_e, template) => {
@@ -1024,10 +1054,14 @@ ipcMain.handle('preview-template', async (_e, template) => {
     fs.mkdirSync(tmpDir, { recursive: true });
     new AdmZip(tmpZip).extractAllTo(tmpDir, true);
     try { fs.unlinkSync(tmpZip); } catch {}
-    const pkg = path.join(tmpDir, 'package.json');
-    const root = fs.existsSync(pkg) && fs.existsSync(path.join(tmpDir, 'dist')) ? path.join(tmpDir, 'dist') : tmpDir;
-    const s = await startStaticServer(root);
-    return { ok: true, ...s, tmpPath: tmpDir };
+    let prep;
+    try {
+      prep = await prepareNodePreview(tmpDir);
+    } catch (err) {
+      prep = { root: tmpDir, note: 'Auto-Build fehlgeschlagen (' + err.message.slice(0, 160) + ') – die Vorschau zeigt die Quellen.' };
+    }
+    const s = await startStaticServer(prep.root);
+    return { ok: true, ...s, tmpPath: tmpDir, note: prep.note };
   } catch (e) {
     return { ok: false, error: e.message };
   }
@@ -1176,17 +1210,14 @@ ipcMain.handle('meta-list', async (_e, payload = {}) => {
 ipcMain.handle('preview-start', async (_e, localPath) => {
   try {
     if (!localPath || !fs.existsSync(localPath)) return { ok: false, error: 'Ordner nicht gefunden: ' + localPath };
-    const pkg = path.join(localPath, 'package.json');
-    // Hinweis: Node-Projekte mit dev-Server werden hier bewusst NICHT automatisch per npm gestartet (v1: statischer Serve).
-    if (fs.existsSync(pkg)) {
-      // trotzdem statisch serven (dist/ bevorzugt, sonst root)
-      const dist = path.join(localPath, 'dist');
-      const root = fs.existsSync(dist) ? dist : localPath;
-      const s = await startStaticServer(root);
-      return { ok: true, ...s, note: 'package.json gefunden – v1 serviert statisch aus ' + root + '. Für HMR: Projektordner öffnen und `npm install && npm run dev` ausführen.' };
+    let prep;
+    try {
+      prep = await prepareNodePreview(localPath);
+    } catch (err) {
+      prep = { root: localPath, note: 'Auto-Build fehlgeschlagen (' + err.message.slice(0, 160) + ') – die Vorschau zeigt die Quellen.' };
     }
-    const s = await startStaticServer(localPath);
-    return { ok: true, ...s };
+    const s = await startStaticServer(prep.root);
+    return { ok: true, ...s, note: prep.note };
   } catch (e) {
     return { ok: false, error: e.message };
   }

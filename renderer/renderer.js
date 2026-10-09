@@ -177,7 +177,7 @@ function renderInstalled() {
     if (it.pagesUrl) mk('globe', 'Pages', 'Veröffentlichte Seite öffnen', () => window.studio.openExternal(it.pagesUrl));
     if (it.localPath) mk('eye', 'Preview', 'Lokale Preview starten', async () => {
       const r = await window.studio.previewStart(it.localPath);
-      if (r.ok) openPv(it.repoName, r.url, r.port, null, { template: it.templateId ? { id: it.templateId } : null, targetDir: it.localPath });
+      if (r.ok) openPv(it.repoName, r.url, r.port, null, { template: it.templateId ? { id: it.templateId } : null, targetDir: it.localPath, note: r.note });
       else toast('Preview-Fehler: ' + r.error, 6000);
     });
     mk('settings', 'Einstellungen', 'Project-Settings öffnen', () => openSettings(it));
@@ -232,7 +232,7 @@ async function openDetailView(t) {
       </div>
     </div>
     <div class="live">
-      <div class="live-head"><b><i data-lucide="eye"></i>Live-Preview</b><code id="dPvUrl">startet …</code></div>
+      <div class="live-head"><b><i data-lucide="eye"></i>Live-Preview</b><code id="dPvUrl">startet …</code><button id="dPvExt" class="btn ghost sm hidden"><i data-lucide="external-link"></i>Im Browser öffnen</button></div>
       <div class="live-body"><webview id="dPvView"></webview></div>
       <div id="dThumbs" class="thumbs"><span class="sub small">Thumbnails werden beim Ansehen automatisch erstellt (UUID-gemapped).</span></div>
     </div>
@@ -284,10 +284,13 @@ async function startDetailPreview() {
     DETAIL.port = r.port;
     DETAIL.tmp = r.tmpPath;
     DETAIL.url = r.url;
-    if (urlEl) urlEl.textContent = r.url;
+    if (urlEl) urlEl.textContent = r.url + (r.note ? ' – ' + r.note : '');
+    const ext = document.getElementById('dPvExt');
+    if (ext) ext.classList.add('hidden');
     const wv = $('#dPvView');
     if (wv) {
       wv.src = r.url;
+      armPreviewFail(wv, urlEl, ext, () => (DETAIL ? DETAIL.url : null));
       try { wv.addEventListener('did-finish-load', () => autoCaptureDetail()); } catch {}
       setTimeout(() => autoCaptureDetail(), 8000);
     }
@@ -354,19 +357,37 @@ async function refreshNode() {
   return s;
 }
 
+// Zeigt bei Ladefehlern im Webview einen Browser-Fallback (statt weißer Seite)
+function armPreviewFail(wv, urlEl, extBtn, getUrl) {
+  if (!wv || !wv.addEventListener) return;
+  try {
+    wv.addEventListener('did-fail-load', (_e, _code, desc, _url, isMainFrame) => {
+      if (isMainFrame === false) return;
+      if (urlEl) urlEl.textContent = 'Laden fehlgeschlagen (' + (desc || 'unbekannt') + ') – Seite prüfen oder im Browser öffnen.';
+      if (extBtn) {
+        extBtn.classList.remove('hidden');
+        extBtn.onclick = () => { const u = getUrl(); if (u) window.studio.openExternal(u); };
+      }
+      icons();
+    });
+  } catch {}
+}
+
 // ---------- Card-Preview ----------
 async function cardPreview(t, btn) {
   if (PV.port != null) return;
   if (btn) btn.disabled = true;
   $('#pvTitle').textContent = 'Preview: ' + t.name;
-  $('#pvUrl').textContent = 'lädt …';
+  $('#pvUrl').textContent = 'lädt … (beim ersten Mal wird ggf. gebaut)';
+  $('#pvExt').classList.add('hidden');
   openOverlay('pvModal');
   const r = await window.studio.previewTemplate(t);
   if (btn) btn.disabled = false;
   if (!r.ok) { $('#pvUrl').textContent = 'Fehler: ' + r.error + ' – prüfe die Internetverbindung und versuche es erneut.'; return; }
   PV = { port: r.port, tmp: r.tmpPath, url: r.url, template: t, targetDir: null, captured: false };
-  $('#pvUrl').textContent = r.url;
+  $('#pvUrl').textContent = r.url + (r.note ? ' – ' + r.note : '');
   $('#pvView').src = r.url;
+  armPreviewFail($('#pvView'), $('#pvUrl'), $('#pvExt'), () => PV.url);
   autoCapturePv();
 }
 async function autoCapturePv() {
@@ -385,10 +406,12 @@ async function closePv() {
 }
 function openPv(title, url, port, tmp, extra) {
   $('#pvTitle').textContent = 'Preview: ' + title;
-  $('#pvUrl').textContent = url;
+  $('#pvUrl').textContent = url + (extra && extra.note ? ' – ' + extra.note : '');
+  $('#pvExt').classList.add('hidden');
   PV = { port, tmp, url, template: (extra && extra.template) || null, targetDir: (extra && extra.targetDir) || null, captured: false };
   openOverlay('pvModal');
   $('#pvView').src = url;
+  armPreviewFail($('#pvView'), $('#pvUrl'), $('#pvExt'), () => PV.url);
   autoCapturePv();
 }
 
@@ -644,7 +667,7 @@ function showInstallResult(r) {
     if (r.pagesUrl) mk('globe', 'Pages', 'Veröffentlichte Seite öffnen', () => window.studio.openExternal(r.pagesUrl));
     if (r.localPath) mk('eye', 'Preview', 'Lokale Preview starten', async () => {
       const p = await window.studio.previewStart(r.localPath);
-      if (p.ok) openPv(INST.opts.repoName, p.url, p.port, null, { template: CURRENT, targetDir: r.localPath });
+      if (p.ok) openPv(INST.opts.repoName, p.url, p.port, null, { template: CURRENT, targetDir: r.localPath, note: p.note });
       else toast('Preview-Fehler: ' + p.error, 6000);
     });
     store.add({ repoName: INST.opts.repoName, templateId: CURRENT.id, templateName: CURRENT.name, localPath: r.localPath, repoUrl: r.repoUrl, pagesUrl: r.pagesUrl, at: new Date().toLocaleString('de-DE') });

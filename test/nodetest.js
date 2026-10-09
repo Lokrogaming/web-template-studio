@@ -44,7 +44,7 @@ if (FULL && process.platform === 'win32') {
   process.chdir(PROJ);
   const mainApi = require(path.join(PROJ, 'main.js'));
 
-  const need = ['node-status', 'node-setup-start', 'node-setup-state', 'node-setup-cancel', 'workflow-install', 'install-cancel', 'pick-folder'];
+  const need = ['node-status', 'node-setup-start', 'node-setup-state', 'node-setup-cancel', 'workflow-install', 'install-cancel', 'pick-folder', 'preview-template', 'preview-template-stop'];
   const missing = need.filter((h) => !handlers[h]);
   console.log('Handler registriert:', need.length - missing.length + '/' + need.length, missing.length ? ('FEHLT: ' + missing.join(',')) : '');
   if (missing.length) process.exit(1);
@@ -90,5 +90,33 @@ if (FULL && process.platform === 'win32') {
   console.log('npm-Env-Sanitize:', envOk ? 'OK' : 'FEHLER');
   if (!envOk) process.exit(1);
   console.log('ENV-TEST OK');
+
+  // Preview-E2E: statisches Template wird direkt serviert
+  const httpMod = require('http');
+  const fetchLocal = (port) => new Promise((resolve, reject) => {
+    httpMod.get({ host: '127.0.0.1', port, path: '/' }, (res) => {
+      let s = '';
+      res.on('data', (c) => (s += c));
+      res.on('end', () => resolve({ status: res.statusCode, body: s }));
+    }).on('error', reject);
+  });
+  const pv = await handlers['preview-template'](null, { zip: 'test-template.zip', id: 'test-template' });
+  if (!pv.ok) { console.log('PREVIEW-TEST FEHLGESCHLAGEN: ' + pv.error); process.exit(1); }
+  const page = await fetchLocal(pv.port);
+  await handlers['preview-template-stop'](null, pv.port, pv.tmpPath);
+  const staticOk = page.status === 200 && page.body.includes('Hallo vom Test Template');
+  console.log('Preview statisch:', staticOk ? 'OK' : 'FEHLER');
+  if (!staticOk) process.exit(1);
+
+  if (FULL) {
+    // React-Template: muss installiert+gebaut werden (dist mit /assets/, kein /src/main.jsx)
+    const r2 = await handlers['preview-template'](null, { zip: 'react-starter.zip', id: 'react-starter' });
+    if (!r2.ok) { console.log('PREVIEW-REACT FEHLGESCHLAGEN: ' + r2.error); process.exit(1); }
+    const p2 = await fetchLocal(r2.port);
+    await handlers['preview-template-stop'](null, r2.port, r2.tmpPath);
+    const builtOk = p2.status === 200 && !p2.body.includes('/src/main.jsx') && /assets\//.test(p2.body);
+    console.log('Preview React (gebaut):', builtOk ? 'OK' : 'FEHLER');
+    if (!builtOk) process.exit(1);
+  }
   process.exit(0);
 })().catch((e) => { console.error('TEST-CRASH:', e); process.exit(1); });
