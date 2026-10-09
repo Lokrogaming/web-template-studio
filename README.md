@@ -3,7 +3,9 @@
 Desktop-Marketplace-App (Electron) + Website (GitHub Pages) für Website-Templates.
 
 - **Templates:** liegen in [`Lokrogaming/web-templates`](https://github.com/Lokrogaming/web-templates) als `templates/*.zip` (je mit `.temp-config`) + `templates.json`-Mapping (Name ↔ Zip + `verified`-Flag, optional `preview`-Bild + `deploy`-Flags).
-- **App:** browsen wie in einem Marketplace (Sidebar + Topbar mit Suche/GitHub-Menü), Card mit Preview-Bild, Stack-Badges (Mono), Deploy-Indikatoren und Buttons **Install Template** / **Preview** / **…**.
+- **App:** browsen wie in einem Marketplace (Sidebar + Topbar mit Suche/GitHub-Menü), Card mit Preview-Bild, Stack-Badges (Mono), Deploy-Indikatoren und Buttons **Install Template** / **Preview** / Details. Icons: Lucide (vendored, `npm run vendor:icons` aktualisiert sie).
+- **Install-Dialog (erst nach Klick auf Installieren):** Konfiguration mit Repository-Name, Zielordner (wählbar) und Optionen (GitHub-Repo, Pages, README). GitHub-Anmeldung und Node-Setup erscheinen nur kontextabhängig, wenn sie wirklich gebraucht werden. Danach Live-Fortschritt pro Schritt, am Ende Ergebnis mit nächsten Aktionen. Abbruch jederzeit möglich, Buttons sind während laufender Vorgänge gesperrt.
+- **Node.js/npm:** Beim Erststart geprüft. Fehlt Node (min. v20), bietet SiteSmith ein Setup mit Fortschritt an: offizielles LTS-Zip von nodejs.org, lokal nach Electron-userData entpackt (kein Admin, kein PATH-Eingriff). Vorhandene Installationen werden wiederverwendet. Node-Templates sind bis dahin gesperrt.
 - Card → Modal *„Willst du diese Vorlage nutzen?“* mit zwei Buttons:
   - oben, enabled: **Per Workflow automatisieren (empfohlen)**
   - unten, muted: **.zip laden (Für Erfahrene)**
@@ -18,6 +20,14 @@ Desktop-Marketplace-App (Electron) + Website (GitHub Pages) für Website-Templat
 ```powershell
 npm install
 npm start
+```
+
+## Testen
+
+```powershell
+npm test            # Renderer-Flows (jsdom) + Node-Setup (Reuse-Modus)
+npm run test:node-full   # zusätzlich echter nodejs.org-Download/Extract/Verify (Windows)
+npm run pack        # Paketier-Test (release/win-unpacked)
 ```
 
 ## Bauen (.exe Installer)

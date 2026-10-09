@@ -1,10 +1,10 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const https = require('https');
 const http = require('http');
-const { execFile, spawn } = require('child_process');
+const { execFile } = require('child_process');
 const AdmZip = require('adm-zip');
 
 const TEMPLATE_REPO = 'Lokrogaming/web-templates';
@@ -52,7 +52,7 @@ function downloadToFile(url, dest) {
   return new Promise((resolve, reject) => {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     const file = fs.createWriteStream(dest);
-    const req = https.get(url, { headers: { 'User-Agent': 'web-template-studio' } }, (res) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'sitesmith' } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         file.close();
         fs.unlink(dest, () => {});
@@ -348,34 +348,228 @@ ipcMain.handle('github-oauth-save-secret', async (_e, secret) => {
   return { ok: true };
 });
 
-ipcMain.handle('node-status', async () => {
+// ---------- Node.js Runtime ----------
+// Strategie: vorhandenes System-Node (>= 20) wiederverwenden. Sonst offizielles
+// LTS-Zip von nodejs.org nach userData/nodejs entpacken (kein Admin, kein PATH-Eingriff,
+// wiederholbar, keine Duplikate). Alles läuft im Main-Prozess, nie im Renderer.
+const NODE_MIN_MAJOR = 20;
+const NODE_DIST_INDEX = 'https://nodejs.org/dist/index.json';
+
+function readNodeMarker() {
+  try {
+    const f = userDataFile('nodejs.json');
+    if (!fs.existsSync(f)) return null;
+    return JSON.parse(fs.readFileSync(f, 'utf8'));
+  } catch { return null; }
+}
+function writeNodeMarker(m) {
+  const f = userDataFile('nodejs.json');
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify({ ...m, savedAt: new Date().toISOString() }), 'utf8');
+}
+function bundledNodeRoot() { return path.join(app.getPath('userData'), 'nodejs'); }
+
+async function checkNode() {
+  // 1. app-lokal (SiteSmith-eigen)
+  try {
+    const marker = readNodeMarker();
+    if (marker && marker.exe && fs.existsSync(marker.exe)) {
+      const v = await execFileAsync(marker.exe, ['-v']);
+      if (!v.error) {
+        let npmv = null;
+        if (marker.npmCli && fs.existsSync(marker.npmCli)) {
+          const r = await execFileAsync(marker.exe, [marker.npmCli, '-v']);
+          if (!r.error) npmv = r.stdout.trim();
+        }
+        return { ok: true, node: v.stdout.trim(), npm: npmv, source: 'bundled', version: marker.version || null, minMajor: NODE_MIN_MAJOR };
+      }
+    }
+  } catch {}
+  // 2. System (Hinweis: 'npm' ist auf Windows eine .cmd und braucht cmd.exe; statische Args, keine Shell-Injektion möglich)
   const node = await execFileAsync('node', ['-v']);
-  const npm = await execFileAsync('npm', ['-v']);
-  return {
-    node: node.error ? null : node.stdout.trim(),
-    npm: npm.error ? null : npm.stdout.trim(),
-    ok: !node.error && !npm.error,
-  };
+  const npm = process.platform === 'win32'
+    ? await execFileAsync('cmd.exe', ['/d', '/s', '/c', 'npm -v'])
+    : await execFileAsync('npm', ['-v']);
+  if (!node.error && !npm.error) {
+    const major = parseInt(String(node.stdout.trim()).replace(/^v/, '').split('.')[0], 10);
+    if (Number.isFinite(major) && major >= NODE_MIN_MAJOR) {
+      return { ok: true, node: node.stdout.trim(), npm: npm.stdout.trim(), source: 'system', minMajor: NODE_MIN_MAJOR };
+    }
+    return { ok: false, node: node.stdout.trim(), npm: npm.stdout.trim(), source: 'system', tooOld: true, minMajor: NODE_MIN_MAJOR };
+  }
+  return { ok: false, node: null, npm: null, source: 'none', minMajor: NODE_MIN_MAJOR };
+}
+
+ipcMain.handle('node-status', async () => checkNode());
+
+function fetchJson(url, timeoutMs = 12000) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'sitesmith' } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        fetchJson(res.headers.location, timeoutMs).then(resolve, reject);
+        return;
+      }
+      if (res.statusCode !== 200) { reject(new Error('HTTP ' + res.statusCode + ' für ' + url)); return; }
+      let raw = '';
+      res.on('data', (c) => (raw += c));
+      res.on('end', () => { try { resolve(JSON.parse(raw)); } catch { reject(new Error('Ungültige Antwort von ' + url)); } });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => { req.destroy(new Error('Zeitüberschreitung beim Abruf von ' + url)); });
+  });
+}
+
+function downloadWithProgress(url, dest, onPct) {
+  return new Promise((resolve, reject) => {
+    const go = (u) => {
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      const file = fs.createWriteStream(dest);
+      const req = https.get(u, { headers: { 'User-Agent': 'sitesmith' } }, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          file.close(); try { fs.unlinkSync(dest); } catch {}
+          go(res.headers.location); return;
+        }
+        if (res.statusCode !== 200) {
+          file.close(); try { fs.unlinkSync(dest); } catch {}
+          reject(new Error('Download fehlgeschlagen: HTTP ' + res.statusCode)); return;
+        }
+        const total = parseInt(res.headers['content-length'] || '0', 10);
+        let got = 0;
+        res.on('data', (c) => { got += c.length; if (total > 0 && onPct) onPct(Math.min(100, Math.round((got / total) * 100))); });
+        res.pipe(file);
+        file.on('finish', () => file.close(() => resolve(dest)));
+        file.on('error', (e) => { try { fs.unlinkSync(dest); } catch {} reject(e); });
+      });
+      req.on('error', (e) => { try { fs.unlinkSync(dest); } catch {} reject(e); });
+      nodeSetup.req = req;
+    };
+    go(url);
+  });
+}
+
+const nodeSetup = { running: false, cancel: false, req: null };
+function nodeSend(win, payload) {
+  try { if (win && !win.isDestroyed()) win.webContents.send('node-setup-progress', payload); } catch {}
+}
+
+ipcMain.handle('node-setup-state', async () => ({ running: nodeSetup.running }));
+ipcMain.handle('node-setup-cancel', async () => {
+  nodeSetup.cancel = true;
+  try { if (nodeSetup.req) nodeSetup.req.destroy(); } catch {}
+  return { ok: true };
 });
 
-ipcMain.handle('node-install', async () => {
+ipcMain.handle('node-setup-start', async (e) => {
+  if (nodeSetup.running) return { ok: false, error: 'Setup läuft bereits.' };
   if (process.platform !== 'win32') {
-    return { ok: false, error: 'Auto-Install nur auf Windows (winget) unterstützt. Bitte Node.js LTS manuell von nodejs.org installieren.' };
+    return { ok: false, error: 'Auto-Setup nur auf Windows.', next: 'Installiere Node.js LTS manuell von https://nodejs.org und starte SiteSmith neu.' };
   }
-  const winget = await execFileAsync('winget', ['--version']);
-  if (winget.error) return { ok: false, error: 'winget nicht gefunden. Bitte Node.js LTS manuell installieren.' };
-  return new Promise((resolve) => {
-    const p = spawn('winget', ['install', '--id', 'OpenJS.NodeJS.LTS', '-e', '--accept-source-agreements', '--accept-package-agreements'], { windowsHide: true });
-    let out = '';
-    p.stdout.on('data', (d) => (out += d));
-    p.stderr.on('data', (d) => (out += d));
-    p.on('close', (code) => {
-      if (code === 0) resolve({ ok: true, log: out.slice(-2000) });
-      else resolve({ ok: false, error: 'winget Exit-Code ' + code + '. Log: ' + out.slice(-1500) });
-    });
-    p.on('error', (e) => resolve({ ok: false, error: e.message }));
-  });
+  nodeSetup.running = true;
+  nodeSetup.cancel = false;
+  nodeSetup.req = null;
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const prog = (step, status, detail, percent) => nodeSend(win, { step, status, detail: detail || '', percent: percent ?? null });
+  const cancelled = () => nodeSetup.cancel;
+  const done = (r) => { nodeSetup.running = false; nodeSetup.req = null; return r; };
+  try {
+    prog('check', 'running', 'Prüfe vorhandene Installation …');
+    const cur = await checkNode();
+    if (cur.ok) {
+      prog('done', 'done', `Bereits vorhanden: Node ${cur.node} (${cur.source === 'bundled' ? 'SiteSmith' : 'System'}) – wird wiederverwendet.`);
+      return done({ ok: true, reused: true, ...cur });
+    }
+    if (cancelled()) { prog('check', 'idle', 'Abgebrochen.'); return done({ ok: false, cancelled: true }); }
+
+    prog('version', 'running', 'Ermittle aktuelle LTS-Version (nodejs.org) …');
+    let version;
+    try {
+      const index = await fetchJson(NODE_DIST_INDEX);
+      if (cancelled()) { prog('version', 'idle', 'Abgebrochen.'); return done({ ok: false, cancelled: true }); }
+      if (!Array.isArray(index)) throw new Error('Unerwartetes Format.');
+      const lts = index.find((r) => r && r.lts && /^v\d+\.\d+\.\d+$/.test(r.version));
+      if (!lts) throw new Error('Keine LTS-Version gefunden.');
+      version = lts.version;
+    } catch (err) {
+      return done({ ok: false, step: 'version', error: 'LTS-Version nicht ermittelbar: ' + err.message, next: 'Internetverbindung prüfen und erneut versuchen – oder Node.js LTS manuell von https://nodejs.org installieren und SiteSmith neu starten.' });
+    }
+
+    const root = bundledNodeRoot();
+    const marker = readNodeMarker();
+    if (marker && marker.version === version && marker.exe && fs.existsSync(marker.exe)) {
+      const v = await execFileAsync(marker.exe, ['-v']);
+      if (!v.error) {
+        prog('done', 'done', `Bereits eingerichtet: Node ${v.stdout.trim()} (kein erneuter Download).`);
+        return done({ ok: true, reused: true, node: v.stdout.trim(), source: 'bundled', version });
+      }
+    }
+
+    const file = `node-${version}-win-x64.zip`;
+    const url = `https://nodejs.org/dist/${version}/${file}`;
+    const dest = path.join(os.tmpdir(), `sitesmith-${file}`);
+    prog('download', 'running', `Lade ${file} von nodejs.org …`, 0);
+    try {
+      await downloadWithProgress(url, dest, (p) => { if (!cancelled()) prog('download', 'running', `Lade ${file} … ${p} %`, p); });
+    } catch (err) {
+      if (cancelled()) { prog('download', 'idle', 'Abgebrochen.'); return done({ ok: false, cancelled: true }); }
+      return done({ ok: false, step: 'download', error: err.message, next: 'Internetverbindung prüfen und erneut versuchen – oder Node.js LTS manuell von https://nodejs.org installieren.' });
+    }
+    if (cancelled()) { try { fs.unlinkSync(dest); } catch {} prog('download', 'idle', 'Abgebrochen.'); return done({ ok: false, cancelled: true }); }
+
+    prog('extract', 'running', 'Entpacke …');
+    try {
+      const tmpRoot = path.join(os.tmpdir(), `sitesmith-node-${Date.now()}`);
+      fs.mkdirSync(tmpRoot, { recursive: true });
+      new AdmZip(dest).extractAllTo(tmpRoot, true);
+      try { fs.unlinkSync(dest); } catch {}
+      const sub = fs.readdirSync(tmpRoot).find((n) => n.startsWith('node-') && fs.statSync(path.join(tmpRoot, n)).isDirectory());
+      if (!sub) throw new Error('Unerwartetes Archiv-Layout.');
+      try { fs.rmSync(root, { recursive: true, force: true }); } catch {}
+      fs.mkdirSync(path.dirname(root), { recursive: true });
+      fs.cpSync(path.join(tmpRoot, sub), root, { recursive: true });
+      try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
+    } catch (err) {
+      return done({ ok: false, step: 'extract', error: 'Entpacken fehlgeschlagen: ' + err.message, next: 'Sicherstellen, dass genug Speicherplatz frei ist, dann erneut versuchen.' });
+    }
+    if (cancelled()) { prog('extract', 'idle', 'Abgebrochen.'); return done({ ok: false, cancelled: true }); }
+
+    prog('verify', 'running', 'Prüfe Installation …');
+    const exe = path.join(root, 'node.exe');
+    const npmCli = path.join(root, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+    const v = await execFileAsync(exe, ['-v']);
+    if (v.error) {
+      return done({ ok: false, step: 'verify', error: 'node.exe antwortet nicht.', next: 'Setup erneut ausführen oder Node.js LTS manuell von https://nodejs.org installieren.' });
+    }
+    let npmv = null;
+    if (fs.existsSync(npmCli)) {
+      const r = await execFileAsync(exe, [npmCli, '-v']);
+      if (!r.error) npmv = r.stdout.trim();
+    }
+    writeNodeMarker({ version, exe, npmCli: fs.existsSync(npmCli) ? npmCli : null });
+    prog('done', 'done', `Fertig: Node ${v.stdout.trim()}${npmv ? ' · npm ' + npmv : ''} (SiteSmith-eigen, kein Admin nötig).`);
+    return done({ ok: true, node: v.stdout.trim(), npm: npmv, source: 'bundled', version });
+  } catch (err) {
+    return done({ ok: false, step: 'unknown', error: err.message, next: 'Setup erneut versuchen oder Node.js LTS manuell von https://nodejs.org installieren.' });
+  }
 });
+
+// npm install im Projektordner – nutzt gebündeltes oder System-Node
+async function npmInstall(cwd) {
+  const st = await checkNode();
+  if (!st.ok) throw new Error('Node.js fehlt oder ist zu alt (min. v' + NODE_MIN_MAJOR + ').');
+  let cmd, args;
+  if (st.source === 'bundled') {
+    const marker = readNodeMarker();
+    cmd = path.join(path.dirname(marker.exe), 'npm.cmd');
+    args = ['install', '--no-audit', '--no-fund', '--loglevel=error'];
+  } else {
+    // System-npm (.cmd) via cmd.exe mit statischen Args aufrufen
+    cmd = 'cmd.exe';
+    args = ['/d', '/s', '/c', 'npm install --no-audit --no-fund --loglevel=error'];
+  }
+  const r = await execFileAsync(cmd, args, { cwd, timeout: 5 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 });
+  if (r.error) throw new Error('npm install fehlgeschlagen: ' + (r.stderr || r.error.message).slice(0, 600));
+  return r;
+}
 
 ipcMain.handle('download-zip', async (_e, template) => {
   try {
@@ -390,52 +584,118 @@ ipcMain.handle('download-zip', async (_e, template) => {
   }
 });
 
-ipcMain.handle('workflow-install', async (_e, template, repoName) => {
+const installCtl = { active: false, cancel: false };
+ipcMain.handle('install-cancel', async () => { installCtl.cancel = true; return { ok: true }; });
+
+ipcMain.handle('pick-folder', async (e, defPath) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const r = await dialog.showOpenDialog(win || undefined, {
+    properties: ['openDirectory', 'createDirectory'],
+    defaultPath: defPath || os.homedir(),
+  });
+  if (r.canceled || !r.filePaths.length) return { ok: false };
+  return { ok: true, path: r.filePaths[0] };
+});
+
+ipcMain.handle('workflow-install', async (e, template, repoName, options = {}) => {
+  if (installCtl.active) return { ok: false, error: 'Es läuft bereits eine Installation.', next: 'Warte bis sie fertig ist oder brich sie ab.' };
+  installCtl.active = true;
+  installCtl.cancel = false;
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const send = (step, status, logLine) => {
+    try { if (win && !win.isDestroyed()) win.webContents.send('install-progress', { step, status, log: logLine || '' }); } catch {}
+  };
   const logs = [];
-  const log = (m) => logs.push(m);
+  const log = (m) => { logs.push(m); send('log', 'info', m); };
+  const cancelled = () => installCtl.cancel;
+  const finish = (r) => { installCtl.active = false; return r; };
+  const runStep = async (id, fn) => {
+    if (cancelled()) throw { cancelled: true };
+    send(id, 'running');
+    try {
+      const r = await fn();
+      send(id, 'done');
+      return r;
+    } catch (err) {
+      if (err && err.cancelled) throw err;
+      send(id, 'error', err && err.message);
+      throw err;
+    }
+  };
   try {
-    if (!template || !template.zip || !template.id) return { ok: false, logs, error: 'Ungültiges Template.' };
+    const opts = { targetDir: '', createRepo: true, pages: true, readme: true, ...(options || {}) };
+    if (!template || !template.zip || !template.id) return finish({ ok: false, error: 'Ungültiges Template.', next: 'Wähle ein anderes Template aus der Übersicht.' });
     repoName = String(repoName || '').trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
-    if (!repoName) return { ok: false, logs, error: 'Ungültiger Repo-Name.' };
+    if (!repoName) return finish({ ok: false, error: 'Ungültiger Repository-Name.', next: 'Nur Kleinbuchstaben, Zahlen, Punkte, Unter- und Bindestriche verwenden.' });
 
-    const token = readToken();
-    if (!token) return { ok: false, logs, error: 'GitHub nicht verknüpft. Bitte zuerst anmelden (Schritt 1).' };
-    const me = await githubApi('/user', token);
-    if (me.status !== 200 || !me.json.login) return { ok: false, logs, error: 'GitHub-Token ungültig.' };
-    const owner = me.json.login;
-    log('✓ Angemeldet als ' + owner);
-
-    // 1. Download
-    const url = ZIP_BASE_URL + template.zip;
-    const tmpZip = path.join(os.tmpdir(), 'wts-' + Date.now() + '-' + template.zip);
-    log('⬇ Lade ' + url);
-    await downloadToFile(url, tmpZip);
-    log('✓ Download OK');
-
-    // 2. Entpacken
-    const target = path.join(os.homedir(), 'SiteSmith', repoName);
+    const base = opts.targetDir && String(opts.targetDir).trim() ? String(opts.targetDir).trim() : path.join(os.homedir(), 'SiteSmith');
+    const target = path.join(base, repoName);
     if (fs.existsSync(target) && fs.readdirSync(target).length > 0) {
-      return { ok: false, logs, error: 'Zielordner existiert bereits: ' + target };
-    }
-    fs.mkdirSync(target, { recursive: true });
-    new AdmZip(tmpZip).extractAllTo(target, true);
-    try { fs.unlinkSync(tmpZip); } catch {}
-    log('✓ Entpackt nach ' + target);
-
-    // .temp-config prüfen
-    const cfgPath = path.join(target, '.temp-config');
-    if (fs.existsSync(cfgPath)) {
-      try {
-        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-        log(`✓ .temp-config: ${cfg.name || template.name} v${cfg.version || '?'} (${cfg.type || '?'})`);
-      } catch { log('! .temp-config konnte nicht geparst werden (ignoriert).'); }
-    } else {
-      log('! Keine .temp-config im Zip gefunden (trotzdem fortgefahren).');
+      return finish({ ok: false, error: 'Zielordner existiert bereits: ' + target, next: 'Anderen Repository-Namen wählen oder den Ordner vorher löschen/umbenennen.' });
     }
 
-    // README mit Deployment-Anleitung generieren (SiteSmith)
-    const isHtmlTemplate = String(template.type || '').toLowerCase().includes('html') || String(template.type || '').toLowerCase().includes('static') || fs.existsSync(path.join(target, 'index.html'));
-    const readmeGen =
+    let token = null;
+    let owner = null;
+    if (opts.createRepo) {
+      token = readToken();
+      if (!token) return finish({ ok: false, error: 'GitHub nicht verknüpft.', next: 'Im Install-Dialog auf „Mit GitHub anmelden“ klicken und danach erneut starten.' });
+      const me = await githubApi('/user', token);
+      if (me.status !== 200 || !me.json.login) {
+        return finish({ ok: false, error: 'GitHub-Token ungültig (HTTP ' + me.status + ').', next: 'Erneut anmelden (altes Token wird dabei ersetzt).' });
+      }
+      owner = me.json.login;
+      log('Angemeldet als ' + owner);
+    }
+
+    await runStep('download', async () => {
+      const url = ZIP_BASE_URL + template.zip;
+      const tmpZip = path.join(os.tmpdir(), 'sitesmith-' + Date.now() + '-' + template.zip);
+      log('Lade ' + template.zip + ' …');
+      await downloadToFile(url, tmpZip);
+      log('Download OK');
+      return tmpZip;
+    }).then((zip) => { installCtl._zip = zip; });
+    if (cancelled()) throw { cancelled: true };
+
+    await runStep('extract', async () => {
+      fs.mkdirSync(target, { recursive: true });
+      new AdmZip(installCtl._zip).extractAllTo(target, true);
+      try { fs.unlinkSync(installCtl._zip); } catch {}
+      log('Entpackt nach ' + target);
+      const cfgPath = path.join(target, '.temp-config');
+      if (fs.existsSync(cfgPath)) {
+        try {
+          const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+          log(`Template: ${cfg.name || template.name} v${cfg.version || '?'} (${cfg.type || '?'})`);
+        } catch { log('Hinweis: .temp-config konnte nicht gelesen werden (ignoriert).'); }
+      }
+    });
+    if (cancelled()) throw { cancelled: true };
+
+    const hasPkg = fs.existsSync(path.join(target, 'package.json'));
+    if (hasPkg) {
+      await runStep('deps', async () => {
+        const st = await checkNode();
+        if (!st.ok) {
+          throw new Error(st.source === 'none'
+            ? 'Node.js fehlt für dieses Template.'
+            : `Node.js ist zu alt (${st.node || '?'}, min. v${NODE_MIN_MAJOR}).`);
+        }
+        log(`Installiere Abhängigkeiten (npm, Node ${st.node}) …`);
+        await npmInstall(target);
+        log('Abhängigkeiten installiert');
+      }).catch((err) => {
+        if (err && err.cancelled) throw err;
+        throw new Error(err.message + ' [Nächster Schritt: Node.js über den Setup-Bildschirm einrichten und Installation erneut starten.]');
+      });
+    }
+    if (cancelled()) throw { cancelled: true };
+
+    if (opts.readme) {
+      await runStep('readme', async () => {
+        const isHtmlTemplate = String(template.type || '').toLowerCase().includes('html') || String(template.type || '').toLowerCase().includes('static') || fs.existsSync(path.join(target, 'index.html'));
+        installCtl._isHtml = isHtmlTemplate;
+        const readmeGen =
 `# ${repoName}
 
 Erstellt mit **${APP_NAME}** aus dem Template **${template.name}** (v${template.version || '?'}, ID \`${template.id}\`).
@@ -461,81 +721,108 @@ Erstellt mit **${APP_NAME}** aus dem Template **${template.name}** (v${template.
 ---
 _Template: ${template.name} · Author: ${template.author || '?'} · Stand: ${template.updated || '?'}._
 `;
-    try {
-      const readmePath = path.join(target, 'README.md');
-      if (!fs.existsSync(readmePath)) {
-        fs.writeFileSync(readmePath, readmeGen, 'utf8');
-        log('✓ README mit Deployment-Anleitung generiert');
-      } else {
-        log('ℹ README existiert bereits – nicht überschrieben.');
-      }
-    } catch { log('! README konnte nicht geschrieben werden (ignoriert).'); }
-
-    // 3. Git init + commit
-    const git = async (args) => {
-      const r = await execFileAsync('git', args, { cwd: target });
-      if (r.error) throw new Error('git ' + args.join(' ') + ' fehlgeschlagen: ' + (r.stderr || r.error.message).slice(0, 500));
-      return r;
-    };
-    await git(['init']);
-    await git(['add', '-A']);
-    // identity fallback
-    await execFileAsync('git', ['config', 'user.name', owner], { cwd: target });
-    await execFileAsync('git', ['config', 'user.email', owner + '@users.noreply.github.com'], { cwd: target });
-    await git(['commit', '-m', `chore: ${template.name} Template installieren`]);
-    await git(['branch', '-M', 'main']);
-    log('✓ Git-Repo lokal initialisiert');
-
-    // 4. GitHub-Repo erstellen
-    log('⬆ Erstelle GitHub-Repo ' + owner + '/' + repoName);
-    const create = await githubApi('/user/repos', token, 'POST', {
-      name: repoName, private: false, auto_init: false,
-      description: (template.description || template.name || 'Website').slice(0, 200),
-    });
-    let repoUrl = `https://github.com/${owner}/${repoName}`;
-    if (create.status === 201) {
-      repoUrl = create.json.html_url || repoUrl;
-      log('✓ Repo erstellt: ' + repoUrl);
-    } else if (create.status === 422) {
-      log('! Repo existiert bereits – nutze bestehendes: ' + repoUrl);
-    } else {
-      throw new Error('Repo-Erstellung fehlgeschlagen (HTTP ' + create.status + '): ' + JSON.stringify(create.json).slice(0, 500));
-    }
-
-    // 5. Push
-    const remoteWithToken = `https://${token}@github.com/${owner}/${repoName}.git`;
-    await git(['remote', 'remove', 'origin']).catch(() => {});
-    await git(['remote', 'add', 'origin', remoteWithToken]);
-    const push = await execFileAsync('git', ['push', '-u', 'origin', 'main'], { cwd: target, timeout: 60000 });
-    // Token sofort wieder aus Remote entfernen
-    await execFileAsync('git', ['remote', 'set-url', 'origin', `https://github.com/${owner}/${repoName}.git`], { cwd: target });
-    if (push.error) throw new Error('git push fehlgeschlagen: ' + (push.stderr || push.error.message).slice(0, 800));
-    log('✓ Gepusht nach main');
-
-    // 6. Pages (nur bei html/static sinnvoll, sonst trotzdem versuchen)
-    let pagesUrl = `https://${owner}.github.io/${repoName}/`;
-    const isHtml = isHtmlTemplate;
-    if (isHtml) {
-      log('⚙ Aktiviere GitHub Pages …');
-      const pages = await githubApi(`/repos/${owner}/${repoName}/pages`, token, 'POST', {
-        build_type: 'legacy', source: { branch: 'main', path: '/' },
+        const readmePath = path.join(target, 'README.md');
+        if (!fs.existsSync(readmePath)) {
+          fs.writeFileSync(readmePath, readmeGen, 'utf8');
+          log('README mit Deployment-Anleitung geschrieben');
+        } else {
+          log('README existiert bereits – nicht überschrieben');
+        }
       });
-      if ([201, 202, 204].includes(pages.status)) {
-        log('✓ Pages aktiviert: ' + pagesUrl);
-      } else if (pages.status === 409 || pages.status === 422) {
-        const info = await githubApi(`/repos/${owner}/${repoName}/pages`, token);
-        if (info.json && info.json.html_url) pagesUrl = info.json.html_url;
-        log('✓ Pages existierte bereits: ' + pagesUrl);
-      } else {
-        log('! Pages konnte nicht automatisch aktiviert werden (HTTP ' + pages.status + '). Manuell: Repo → Settings → Pages → main / root.');
+    } else {
+      installCtl._isHtml = fs.existsSync(path.join(target, 'index.html'));
+    }
+    if (cancelled()) throw { cancelled: true };
+
+    await runStep('git', async () => {
+      const git = async (args) => {
+        const r = await execFileAsync('git', args, { cwd: target });
+        if (r.error) throw new Error('git ' + args.join(' ') + ' fehlgeschlagen.');
+        return r;
+      };
+      try {
+        await git(['--version']);
+      } catch {
+        throw new Error('Git wurde nicht gefunden.');
+      }
+      await git(['init']);
+      await git(['add', '-A']);
+      await execFileAsync('git', ['config', 'user.name', owner || 'sitesmith'], { cwd: target });
+      await execFileAsync('git', ['config', 'user.email', (owner || 'sitesmith') + '@users.noreply.github.com'], { cwd: target });
+      await git(['commit', '-m', `chore: ${template.name} Template installieren`]);
+      await git(['branch', '-M', 'main']);
+      log('Lokales Git-Repo initialisiert');
+    }).catch((err) => {
+      if (err && err.cancelled) throw err;
+      const next = /nicht gefunden/.test(err.message)
+        ? 'Git von https://git-scm.com installieren, dann Installation erneut starten (Zielordner vorher löschen).'
+        : 'Details stehen im Log – ggf. Zielordner löschen und erneut versuchen.';
+      throw new Error(err.message + ' [Nächster Schritt: ' + next + ']');
+    });
+    if (cancelled()) throw { cancelled: true };
+
+    let repoUrl = null;
+    let pagesUrl = null;
+    if (opts.createRepo) {
+      await runStep('repo', async () => {
+        log('Erstelle GitHub-Repo ' + owner + '/' + repoName);
+        const create = await githubApi('/user/repos', token, 'POST', {
+          name: repoName, private: false, auto_init: false,
+          description: (template.description || template.name || 'Website').slice(0, 200),
+        });
+        repoUrl = `https://github.com/${owner}/${repoName}`;
+        if (create.status === 201) {
+          repoUrl = create.json.html_url || repoUrl;
+          log('Repo erstellt: ' + repoUrl);
+        } else if (create.status === 422) {
+          log('Repo existiert bereits – nutze bestehendes: ' + repoUrl);
+        } else {
+          throw new Error('Repo-Erstellung fehlgeschlagen (HTTP ' + create.status + ').');
+        }
+      });
+
+      await runStep('push', async () => {
+        const git = async (args) => {
+          const r = await execFileAsync('git', args, { cwd: target });
+          if (r.error) throw new Error('git ' + args.join(' ') + ' fehlgeschlagen.');
+          return r;
+        };
+        await git(['remote', 'remove', 'origin']).catch(() => {});
+        await git(['remote', 'add', 'origin', `https://${token}@github.com/${owner}/${repoName}.git`]);
+        const push = await execFileAsync('git', ['push', '-u', 'origin', 'main'], { cwd: target, timeout: 60000 });
+        await execFileAsync('git', ['remote', 'set-url', 'origin', `https://github.com/${owner}/${repoName}.git`], { cwd: target });
+        if (push.error) throw new Error('git push fehlgeschlagen – ggf. keine Schreibrechte oder keine Verbindung.');
+        log('Gepusht nach main');
+      });
+
+      if (installCtl._isHtml && opts.pages) {
+        await runStep('pages', async () => {
+          pagesUrl = `https://${owner}.github.io/${repoName}/`;
+          log('Aktiviere GitHub Pages …');
+          const pages = await githubApi(`/repos/${owner}/${repoName}/pages`, token, 'POST', {
+            build_type: 'legacy', source: { branch: 'main', path: '/' },
+          });
+          if ([201, 202, 204].includes(pages.status)) {
+            log('Pages aktiviert: ' + pagesUrl);
+          } else if (pages.status === 409 || pages.status === 422) {
+            const info = await githubApi(`/repos/${owner}/${repoName}/pages`, token);
+            if (info.json && info.json.html_url) pagesUrl = info.json.html_url;
+            log('Pages existierte bereits: ' + pagesUrl);
+          } else {
+            log('Pages-Aktivierung übersprungen (HTTP ' + pages.status + ') – manuell: Repo → Settings → Pages → main / root.');
+          }
+        });
+      } else if (!installCtl._isHtml) {
+        log('Kein statisches HTML-Template – Pages-Schritt entfällt.');
       }
     } else {
-      log('ℹ Kein statisches HTML-Template – Pages-Schritt übersprungen.');
+      log('Nur lokal installiert (kein GitHub-Repo gewünscht).');
     }
 
-    return { ok: true, logs, localPath: target, repoUrl, pagesUrl };
-  } catch (e) {
-    return { ok: false, logs, error: e.message };
+    return finish({ ok: true, logs, localPath: target, repoUrl, pagesUrl });
+  } catch (err) {
+    if (err && err.cancelled) return finish({ ok: false, cancelled: true, logs, error: 'Installation abgebrochen.' });
+    return finish({ ok: false, logs, error: (err && err.message) || 'Unbekannter Fehler.' });
   }
 });
 

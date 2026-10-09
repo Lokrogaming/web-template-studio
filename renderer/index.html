@@ -12,55 +12,56 @@
 <body>
 <div class="app">
   <!-- ============ Sidebar ============ -->
-  <aside class="sidebar">
+  <aside class="sidebar" aria-label="Navigation">
     <div class="side-brand">
-      <!-- Platzhalter-Mark: geometrisches „S“-Monogramm (finales Hammer-Logo folgt) -->
-      <div class="mark" title="SiteSmith">S</div>
+      <div class="mark" title="SiteSmith"><i data-lucide="hammer"></i></div>
       <div class="side-brand-text"><b>SiteSmith</b><span>Template Studio</span></div>
     </div>
-    <nav class="side-nav">
-      <button class="nav-item active" data-view="market">Marketplace</button>
-      <button class="nav-item" data-view="installed">Installiert <span id="installedCount" class="count hidden"></span></button>
+    <nav class="side-nav" aria-label="Bereiche">
+      <button class="nav-item active" data-view="market"><i data-lucide="layout-grid"></i><span>Marketplace</span></button>
+      <button class="nav-item" data-view="installed"><i data-lucide="hard-drive"></i><span>Installiert</span><span id="installedCount" class="count hidden"></span></button>
     </nav>
     <div class="side-foot">
-      <div id="ghSide" class="side-status">GitHub: …</div>
-      <div id="nodeSide" class="side-status">Node: …</div>
+      <button id="ghSide" class="side-status" title="GitHub-Status – klicken für Details"><i data-lucide="user"></i><span>GitHub: …</span></button>
+      <button id="nodeSide" class="side-status" title="Node.js-Status – klicken für Setup"><i data-lucide="server"></i><span>Node: …</span></button>
     </div>
   </aside>
 
   <!-- ============ Main ============ -->
   <div class="main-col">
     <header class="topbar">
-      <input id="search" type="search" placeholder="Templates suchen …" />
+      <div class="search-wrap">
+        <i data-lucide="search"></i>
+        <input id="search" type="search" placeholder="Templates suchen …" aria-label="Templates suchen" />
+      </div>
       <div class="top-right">
-        <button id="refreshBtn" class="btn ghost sm" title="Liste neu laden">↻ Neu laden</button>
-        <button id="accountBtn" class="account" title="GitHub-Konto">⋯</button>
+        <button id="refreshBtn" class="btn ghost icon" title="Liste neu laden" aria-label="Liste neu laden"><i data-lucide="refresh-cw"></i></button>
+        <button id="accountBtn" class="account" title="GitHub-Konto" aria-label="GitHub-Konto">?</button>
       </div>
     </header>
 
     <main class="content">
-      <div id="status" class="status hidden"></div>
+      <div id="status" class="status hidden" role="status" aria-live="polite"></div>
 
-      <!-- Marketplace -->
-      <section id="view-market">
+      <section id="view-market" aria-label="Marketplace">
         <div class="view-head">
           <div><h2>Marketplace</h2><p id="repoLine" class="sub"></p></div>
         </div>
+        <div id="gridState" class="state hidden"></div>
         <div id="grid" class="grid"></div>
       </section>
 
-      <!-- Installiert -->
-      <section id="view-installed" class="hidden">
+      <section id="view-installed" class="hidden" aria-label="Installierte Projekte">
         <div class="view-head"><div><h2>Installiert</h2><p class="sub">Deine per Workflow installierten Projekte (lokal gespeichert).</p></div></div>
         <div id="installedList" class="installed"></div>
       </section>
     </main>
   </div>
 
-  <!-- ============ Detail-Panel (rechts) ============ -->
-  <aside id="detailPanel" class="detail hidden">
+  <!-- ============ Detail-Panel ============ -->
+  <aside id="detailPanel" class="detail hidden" aria-label="Template-Details">
     <div class="detail-scroll">
-      <button class="btn ghost sm" data-close="detailPanel">← Zurück</button>
+      <button class="btn ghost sm" data-close="detailPanel"><i data-lucide="chevron-left"></i>Zurück</button>
       <img id="dImg" class="detail-img" alt="Template-Vorschau" />
       <div class="detail-head"><h2 id="dName"></h2><span id="dVerified"></span></div>
       <p id="dDesc" class="sub"></p>
@@ -69,87 +70,146 @@
       <h3>Informationen</h3>
       <dl id="dBody" class="facts"></dl>
       <h3>Installation</h3>
-      <p class="sub small">Per Workflow erstellt SiteSmith automatisch ein Repo, verknüpft Pages (bei HTML), schreibt ein README mit Deploy-Anleitung und startet eine localhost-Preview.</p>
+      <p class="sub small">SiteSmith erstellt wahlweise nur lokal oder zusätzlich ein GitHub-Repo, verknüpft Pages (bei HTML), schreibt ein README mit Deploy-Anleitung und startet eine localhost-Preview.</p>
       <h3>GitHub</h3>
       <p id="dGh" class="sub small">…</p>
       <div class="detail-cta">
-        <button id="dInstallBtn" class="btn primary big">Install Template</button>
-        <button id="dZipBtn" class="btn muted">.zip laden <span class="sub2">(Für Erfahrene)</span></button>
+        <button id="dInstallBtn" class="btn primary big"><i data-lucide="package"></i>Install Template</button>
+        <button id="dZipBtn" class="btn muted"><i data-lucide="download"></i>.zip laden<span class="sub2">Für Erfahrene</span></button>
       </div>
     </div>
   </aside>
 </div>
 
-<!-- Nutzen-Modal -->
-<div id="useModal" class="overlay hidden">
-  <div class="modal glass">
-    <h2>Willst du diese Vorlage nutzen?</h2>
-    <p id="useName" class="use-name"></p>
-    <div class="use-btns">
-      <button id="useWorkflowBtn" class="btn primary big">Per Workflow automatisieren <span class="rec">(empfohlen)</span></button>
-      <button id="useZipBtn" class="btn muted">.zip laden <span class="sub2">(Für Erfahrene)</span></button>
+<!-- ============ Install-Dialog (nur nach Klick auf Installieren) ============ -->
+<div id="installDialog" class="overlay hidden">
+  <div class="modal glass" role="dialog" aria-modal="true" aria-labelledby="instTitle">
+    <div class="dlg-head">
+      <h2 id="instTitle">Template installieren</h2>
+      <button class="btn ghost icon" data-close="installDialog" title="Schließen (Esc)" aria-label="Dialog schließen"><i data-lucide="x"></i></button>
     </div>
-    <button class="btn ghost close" data-close="useModal">Abbrechen</button>
+    <p id="instTemplate" class="sub"></p>
+
+    <!-- Stufe: Konfiguration -->
+    <div id="instStageConfig">
+      <label class="field"><span>Repository-Name</span>
+        <input id="repoInput" value="meine-website" maxlength="60" autocomplete="off" />
+      </label>
+      <label class="field"><span>Zielordner</span>
+        <div class="row tight">
+          <input id="targetInput" readonly="readonly" aria-readonly="true" />
+          <button id="targetBrowse" class="btn ghost" title="Ordner wählen"><i data-lucide="folder-open"></i></button>
+        </div>
+      </label>
+      <div class="checks">
+        <label class="check"><input id="optRepo" type="checkbox" checked="checked" /><span>GitHub-Repo erstellen</span></label>
+        <label class="check"><input id="optPages" type="checkbox" checked="checked" /><span>GitHub Pages verknüpfen (nur HTML)</span></label>
+        <label class="check"><input id="optReadme" type="checkbox" checked="checked" /><span>README mit Deploy-Anleitung schreiben</span></label>
+      </div>
+      <div id="instPrereqHint" class="hint-box hidden"></div>
+      <div class="dlg-actions">
+        <button id="instZipBtn" class="btn muted" title="Nur die Zip-Datei herunterladen"><i data-lucide="download"></i>Nur .zip</button>
+        <div class="spacer"></div>
+        <button class="btn ghost" data-close="installDialog">Abbrechen</button>
+        <button id="instStartBtn" class="btn primary"><i data-lucide="check"></i>Installation starten</button>
+      </div>
+    </div>
+
+    <!-- Stufe: GitHub-Anmeldung (nur bei Bedarf) -->
+    <div id="instStageAuth" class="hidden">
+      <p>Dafür braucht SiteSmith Zugriff auf dein GitHub-Konto (Repo erstellen, pushen, Pages).</p>
+      <button id="instOauthBtn" class="btn primary big">Im Browser mit GitHub anmelden</button>
+      <p id="instOauthWait" class="hidden sub">Warte auf den Browser … <button id="instOauthCancel" class="btn ghost sm">Abbrechen</button></p>
+      <details class="small"><summary>Alternativ per Personal Access Token</summary>
+        <div class="row tight"><input id="instTokenInput" type="password" placeholder="ghp_…" /><button id="instTokenSave" class="btn ghost sm">Speichern</button></div>
+      </details>
+      <div class="dlg-actions"><div class="spacer"></div><button class="btn ghost" data-close="installDialog">Abbrechen</button></div>
+    </div>
+
+    <!-- Stufe: Node-Setup (nur bei Bedarf) -->
+    <div id="instStageNode" class="hidden">
+      <p>Dieses Template braucht Node.js + npm.</p>
+      <div class="dlg-actions">
+        <div class="spacer"></div>
+        <button class="btn ghost" data-close="installDialog">Abbrechen</button>
+        <button id="instNodeBtn" class="btn primary"><i data-lucide="server"></i>Node.js jetzt einrichten</button>
+      </div>
+    </div>
+
+    <!-- Stufe: Fortschritt -->
+    <div id="instStageProgress" class="hidden">
+      <ol id="instSteps" class="isteps"></ol>
+      <pre id="instLog" class="log" aria-live="polite"></pre>
+      <div class="dlg-actions"><div class="spacer"></div><button id="instCancelBtn" class="btn ghost">Abbrechen</button></div>
+    </div>
+
+    <!-- Stufe: Ergebnis -->
+    <div id="instStageResult" class="hidden">
+      <div id="instResult" class="result"></div>
+      <pre id="instResultLog" class="log hidden"></pre>
+      <div id="instLinks" class="row"></div>
+      <div class="dlg-actions">
+        <div class="spacer"></div>
+        <button id="instRetryBtn" class="btn ghost hidden"><i data-lucide="refresh-cw"></i>Erneut versuchen</button>
+        <button id="instDoneBtn" class="btn primary">Fertig</button>
+      </div>
+    </div>
   </div>
 </div>
 
-<!-- Live-Preview-Overlay -->
+<!-- ============ Node-Setup-Overlay (Erststart) ============ -->
+<div id="setupOverlay" class="overlay hidden">
+  <div class="modal glass" role="dialog" aria-modal="true" aria-labelledby="setupTitle">
+    <div class="dlg-head">
+      <h2 id="setupTitle">Node.js einrichten</h2>
+      <button id="setupClose" class="btn ghost icon" title="Schließen (Esc)" aria-label="Setup schließen"><i data-lucide="x"></i></button>
+    </div>
+    <p class="sub">SiteSmith nutzt Node.js + npm für Node-Templates. Vorhandene Installationen (min. v20) werden wiederverwendet – sonst wird das offizielle LTS-Build von nodejs.org lokal eingerichtet (kein Admin nötig).</p>
+    <ol id="setupSteps" class="isteps"></ol>
+    <div class="progress hidden" id="setupProgressWrap"><div id="setupProgress" class="bar"></div></div>
+    <p id="setupStatus" class="sub"></p>
+    <div id="setupError" class="error-box hidden"></div>
+    <div class="dlg-actions">
+      <div class="spacer"></div>
+      <button id="setupLater" class="btn ghost">Später</button>
+      <button id="setupRetry" class="btn ghost hidden"><i data-lucide="refresh-cw"></i>Erneut versuchen</button>
+      <button id="setupStart" class="btn primary"><i data-lucide="server"></i>Jetzt einrichten</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Konto-Dialog ============ -->
+<div id="accountDialog" class="overlay hidden">
+  <div class="modal glass" role="dialog" aria-modal="true" aria-labelledby="accTitle">
+    <div class="dlg-head">
+      <h2 id="accTitle">GitHub-Konto</h2>
+      <button class="btn ghost icon" data-close="accountDialog" title="Schließen (Esc)" aria-label="Dialog schließen"><i data-lucide="x"></i></button>
+    </div>
+    <p id="accState" class="sub"></p>
+    <div id="accLogin" class="hidden">
+      <button id="accOauthBtn" class="btn primary big">Im Browser mit GitHub anmelden</button>
+      <p id="accOauthWait" class="hidden sub">Warte auf den Browser … <button id="accOauthCancel" class="btn ghost sm">Abbrechen</button></p>
+      <details class="small"><summary>Alternativ per Personal Access Token</summary>
+        <div class="row tight"><input id="accTokenInput" type="password" placeholder="ghp_…" /><button id="accTokenSave" class="btn ghost sm">Speichern</button></div>
+      </details>
+    </div>
+    <div class="dlg-actions">
+      <div class="spacer"></div>
+      <button id="accLogout" class="btn ghost hidden"><i data-lucide="log-out"></i>Abmelden</button>
+      <button class="btn ghost" data-close="accountDialog">Schließen</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Live-Preview ============ -->
 <div id="pvModal" class="overlay hidden">
-  <div class="modal wide glass">
-    <div class="row spread"><b id="pvTitle">Preview</b><code id="pvUrl"></code><button class="btn ghost sm" data-close="pvModal">Schließen</button></div>
+  <div class="modal wide glass" role="dialog" aria-modal="true" aria-labelledby="pvTitle">
+    <div class="row spread"><b id="pvTitle">Preview</b><code id="pvUrl"></code><button class="btn ghost icon" data-close="pvModal" title="Schließen (Esc)" aria-label="Preview schließen"><i data-lucide="x"></i></button></div>
     <div class="preview-wrap"><webview id="pvView" style="height:480px"></webview></div>
   </div>
 </div>
 
-<!-- Workflow-Modal -->
-<div id="flowModal" class="overlay hidden">
-  <div class="modal wide glass">
-    <h2 id="fTitle">Workflow</h2>
-    <ol class="steps">
-      <li><b>1. GitHub</b><div class="step-body">
-        <p id="ghState">Prüfe …</p>
-        <div id="oauthBox" class="hidden">
-          <button id="oauthBtn" class="btn primary">Im Browser mit GitHub anmelden</button>
-          <p id="oauthWait" class="hidden">Warte auf den Browser … <button id="oauthCancel" class="btn ghost sm">Abbrechen</button></p>
-          <details class="small"><summary>Falls GitHub ein Client Secret verlangt …</summary>
-            <div class="row"><input id="oauthSecretInput" type="password" placeholder="Client Secret einfügen" /><button id="oauthSecretSave" class="btn ghost sm">Speichern</button></div>
-            <p id="oauthSecretState" class="small"></p>
-            <p class="small">In den App-Einstellungen auf GitHub unter „Client secrets“ generieren. Wird nur lokal auf deinem PC gespeichert.</p>
-          </details>
-        </div>
-        <div id="ghLoginBox" class="hidden">
-          <p class="small">Alternativ per <b>Personal Access Token</b> (Scopes: <code>repo</code>, <code>workflow</code>):</p>
-          <div class="row"><input id="tokenInput" type="password" placeholder="ghp_…" /><button id="tokenSave" class="btn primary">Anmelden</button></div>
-          <p class="small">Alternativ: <code>gh auth login --web</code> im Terminal. Das Token wird lokal gespeichert.</p>
-        </div>
-        <div class="row"><button id="ghLogout" class="btn ghost sm hidden">Abmelden</button></div>
-      </div></li>
-      <li><b>2. Repository</b><div class="step-body row">
-        <input id="repoInput" value="meine-website" />
-        <span class="small">frei umbenennbar – SiteSmith erstellt das Repo + README mit Deploy-Anleitung</span>
-      </div></li>
-      <li><b>3. Node.js &amp; npm</b><div class="step-body">
-        <p id="nodeState">Prüfe …</p>
-        <button id="nodeInstallBtn" class="btn ghost sm hidden">Node.js LTS installieren (winget)</button>
-      </div></li>
-      <li><b>4. Installieren</b><div class="step-body">
-        <button id="installBtn" class="btn primary">Install Template</button>
-        <pre id="flowLog" class="log"></pre>
-        <div id="flowLinks" class="row"></div>
-      </div></li>
-      <li><b>5. Preview</b><div class="step-body">
-        <div class="row">
-          <button id="previewBtn" class="btn ghost sm" disabled>Preview starten</button>
-          <button id="previewStopBtn" class="btn ghost sm hidden">Stoppen</button>
-          <code id="previewUrl"></code>
-        </div>
-        <div class="preview-wrap"><webview id="previewView" style="height:380px" class="hidden"></webview></div>
-      </div></li>
-    </ol>
-    <div class="row"><button class="btn ghost sm" data-close="flowModal">Schließen</button></div>
-  </div>
-</div>
-
+<script src="vendor/lucide.min.js"></script>
 <script src="renderer.js"></script>
 </body>
 </html>

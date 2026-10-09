@@ -9,9 +9,23 @@ contextBridge.exposeInMainWorld('studio', {
   oauthCancel: () => ipcRenderer.invoke('github-oauth-cancel'),
   oauthSaveSecret: (s) => ipcRenderer.invoke('github-oauth-save-secret', s),
   nodeStatus: () => ipcRenderer.invoke('node-status'),
-  nodeInstall: () => ipcRenderer.invoke('node-install'),
+  nodeSetupStart: () => ipcRenderer.invoke('node-setup-start'),
+  nodeSetupState: () => ipcRenderer.invoke('node-setup-state'),
+  nodeSetupCancel: () => ipcRenderer.invoke('node-setup-cancel'),
+  onNodeSetup: (cb) => {
+    const h = (_e, p) => cb(p);
+    ipcRenderer.on('node-setup-progress', h);
+    return () => ipcRenderer.removeListener('node-setup-progress', h);
+  },
   downloadZip: (template) => ipcRenderer.invoke('download-zip', template),
-  workflowInstall: (template, repoName) => ipcRenderer.invoke('workflow-install', template, repoName),
+  workflowInstall: (template, repoName, options) => ipcRenderer.invoke('workflow-install', template, repoName, options),
+  installCancel: () => ipcRenderer.invoke('install-cancel'),
+  onInstallProgress: (cb) => {
+    const h = (_e, p) => cb(p);
+    ipcRenderer.on('install-progress', h);
+    return () => ipcRenderer.removeListener('install-progress', h);
+  },
+  pickFolder: (defPath) => ipcRenderer.invoke('pick-folder', defPath),
   previewStart: (localPath) => ipcRenderer.invoke('preview-start', localPath),
   previewStop: (port) => ipcRenderer.invoke('preview-stop', port),
   previewTemplate: (template) => ipcRenderer.invoke('preview-template', template),
