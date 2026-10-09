@@ -14,6 +14,8 @@ const TPL_NODE = { id: 'node-app', name: 'Node App', zip: 'node-app.zip', verifi
 let ghConnected = false;
 let nodeOk = true;
 let installCalls = 0;
+let captureCalls = 0;
+let galleryStore = [];
 const calls = { pickFolder: 0 };
 
 const studio = {
@@ -37,6 +39,8 @@ const studio = {
   previewStop: async () => ({ ok: true }),
   previewTemplate: async () => ({ ok: true, url: 'http://127.0.0.1:2', port: 2, tmpPath: null }),
   previewTemplateStop: async () => ({ ok: true }),
+  previewCapture: async () => { captureCalls++; const id = 'uuid-test-' + captureCalls; galleryStore.unshift({ previewId: id, at: 'now', dataUrl: 'data:image/png;base64,eHh4' }); return { ok: true, previewId: id, thumbId: 't', path: 'p', dataUrl: 'data:image/png;base64,eHh4' }; },
+  metaList: async () => ({ ok: true, entries: galleryStore }),
   openFolder: async () => ({ ok: true }),
   openExternal: async () => ({ ok: true }),
 };
@@ -133,11 +137,21 @@ const t = (name, cond) => { results.push([cond ? 'PASS' : 'FAIL', name]); };
   t('Kein Doppel-Install', installCalls === before + 1);
   $('#instDoneBtn').click();
 
-  // Esc schließt Detail-Panel
+  // Detailseite (echte View, kein Overlay/Drawer)
   window.document.querySelector('#grid .card [data-act="more"]').click();
-  t('Detail-Panel offen', !$('#detailPanel').classList.contains('hidden'));
+  await sleep(80);
+  t('Detail-View offen', !$('#view-detail').classList.contains('hidden') && !!window.document.querySelector('#detailContent .tpl-hero'));
+  t('Hero mit Install-Button', !!$('#dInstall'));
+  t('Features gerendert', window.document.querySelectorAll('#detailContent .feat li').length >= 1);
+  t('Versionen gerendert', window.document.querySelectorAll('#detailContent .versions li').length >= 1);
+  t('Live-Preview im Header gestartet', ($('#dPvUrl').textContent || '').includes('http'));
+  $('#dPvView').dispatchEvent(new window.Event('did-finish-load'));
+  await sleep(60);
+  t('Auto-Capture mit UUID', captureCalls === 1);
+  t('Thumbnail in Galerie', window.document.querySelectorAll('#dGallery .thumb').length === 1);
   window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-  t('Esc schließt Detail-Panel', $('#detailPanel').classList.contains('hidden'));
+  await sleep(30);
+  t('Esc zurück zur Übersicht', !$('#view-market').classList.contains('hidden'));
 
   // Validierung: leerer Repo-Name blockiert
   window.document.querySelector('#grid .card [data-act="install"]').click();

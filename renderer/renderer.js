@@ -128,9 +128,9 @@ function renderGrid() {
       </div>`;
     card.querySelector('[data-act="install"]').addEventListener('click', (ev) => openInstall(t, ev.target.closest('button')));
     card.querySelector('[data-act="preview"]').addEventListener('click', (ev) => { const b = ev.target.closest('button'); if (b.disabled) return; cardPreview(t, b); });
-    card.querySelector('[data-act="more"]').addEventListener('click', () => openDetail(t));
+    card.querySelector('[data-act="more"]').addEventListener('click', () => openDetailView(t));
     const im = card.querySelector('.card-img');
-    im.addEventListener('click', () => openDetail(t));
+    im.addEventListener('click', () => openDetailView(t));
     im.addEventListener('error', function () { this.src = placeholder(t); });
     grid.appendChild(card);
   });
@@ -143,7 +143,9 @@ function setView(v) {
   $$('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
   $('#view-market').classList.toggle('hidden', v !== 'market');
   $('#view-installed').classList.toggle('hidden', v !== 'installed');
+  $('#view-detail').classList.toggle('hidden', v !== 'detail');
   if (v === 'installed') renderInstalled();
+  if (v !== 'detail' && DETAIL) leaveDetailView(v);
 }
 function renderInstalled() {
   const list = $('#installedList');
@@ -173,7 +175,7 @@ function renderInstalled() {
     if (it.pagesUrl) mk('globe', 'Pages', 'Veröffentlichte Seite öffnen', () => window.studio.openExternal(it.pagesUrl));
     if (it.localPath) mk('eye', 'Preview', 'Lokale Preview starten', async () => {
       const r = await window.studio.previewStart(it.localPath);
-      if (r.ok) openPv(it.repoName, r.url, r.port, null);
+      if (r.ok) openPv(it.repoName, r.url, r.port, null, { template: it.templateId ? { id: it.templateId } : null, targetDir: it.localPath });
       else toast('Preview-Fehler: ' + r.error, 6000);
     });
     list.appendChild(el);
@@ -181,26 +183,142 @@ function renderInstalled() {
   icons();
 }
 
-// ---------- Detail-Panel ----------
-function openDetail(t) {
+// ---------- Detailseite (eigene View im Modrinth-Overview-Stil) ----------
+let DETAIL = null; // { template, port, tmp, url, captured }
+
+async function leaveDetailView(backTo) {
+  if (DETAIL) {
+    const d = DETAIL;
+    DETAIL = null;
+    if (d.port != null) { try { await window.studio.previewTemplateStop(d.port, d.tmp); } catch {} }
+  }
+  if (VIEW === 'detail') setView(backTo || 'market');
+}
+
+function versionList(t) {
+  const vs = Array.isArray(t.versions) && t.versions.length ? t.versions
+    : [{ version: t.version || '?', date: t.updated || '?', notes: 'Aktuelle Version.' }];
+  return vs.map((v) => `<li><span class="ver">v${esc(v.version)}</span><span class="vdate">${esc(v.date || '')}</span><p>${esc(v.notes || '')}</p></li>`).join('');
+}
+
+async function openDetailView(t) {
+  if (DETAIL) await leaveDetailView('market');
   CURRENT = t;
-  $('#dImg').src = previewUrl(t) || placeholder(t);
-  $('#dImg').onerror = function () { this.src = placeholder(t); };
-  $('#dName').textContent = t.name;
-  $('#dVerified').innerHTML = verifiedBadge(t);
-  $('#dDesc').textContent = t.description || '';
-  $('#dStacks').innerHTML = stackBadges(t);
-  $('#dDeploy').innerHTML = deployFlags(t);
+  DETAIL = { template: t, port: null, tmp: null, url: null, captured: false };
+  setView('detail');
   const rows = [
     ['Art / Typ', t.type], ['Sprachen', (t.languages || []).join(', ')],
     ['Version', t.version], ['Author', t.author], ['Latest updated', t.updated],
     ['Zip im Repo', 'templates/' + t.zip], ['Entry', t.entry || 'index.html'],
     ['Verifiziert', t.verified === true ? 'ja (verified: true im Mapping)' : 'nein'],
   ];
-  $('#dBody').innerHTML = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v || '–')}</dd>`).join('');
-  $('#dGh').textContent = GH.connected ? `Verbunden als ${GH.user.login} – Repo-Erstellung möglich.` : 'Nicht verbunden – Anmeldung erfolgt bei Bedarf im Install-Dialog.';
-  show('detailPanel');
+  const feats = Array.isArray(t.features) && t.features.length ? t.features : ['Keine Angaben.'];
+  $('#detailContent').innerHTML = `
+    <div class="back-row"><button class="btn ghost sm" id="dBack"><i data-lucide="chevron-left"></i>Zurück zur Übersicht</button></div>
+    <div class="tpl-hero">
+      <div class="tpl-icon">${esc((t.name || '?').slice(0, 1).toUpperCase())}</div>
+      <div class="tpl-title">
+        <h2>${esc(t.name)} ${verifiedBadge(t)}</h2>
+        <p class="sub">${esc(t.description || '')}</p>
+        <div class="chips"><span class="chip">v${esc(t.version || '?')}</span><span class="chip">${esc(t.type || '?')}</span><span class="chip">by ${esc(t.author || '?')}</span><span class="chip">updated ${esc(t.updated || '?')}</span></div>
+        <div class="stacks">${stackBadges(t)}</div>
+      </div>
+      <div class="tpl-actions">
+        <button id="dInstall" class="btn primary"><i data-lucide="package"></i>Install Template</button>
+        <button id="dZip" class="btn ghost icon" title=".zip laden (für Erfahrene)" aria-label=".zip laden (für Erfahrene)"><i data-lucide="download"></i></button>
+      </div>
+    </div>
+    <div class="live">
+      <div class="live-head"><b><i data-lucide="eye"></i>Live-Preview</b><code id="dPvUrl">startet …</code></div>
+      <div class="live-body"><webview id="dPvView"></webview></div>
+      <div id="dThumbs" class="thumbs"><span class="sub small">Thumbnails werden beim Ansehen automatisch erstellt (UUID-gemapped).</span></div>
+    </div>
+    <div class="detail-grid">
+      <div>
+        <h3>Überblick</h3>
+        <p>${esc(t.description || '')}</p>
+        <div class="deploy-flags">${deployFlags(t)}</div>
+        <h3>Features</h3>
+        <ul class="feat">${feats.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>
+        <h3>Galerie</h3>
+        <div id="dGallery" class="gallery"><p class="sub small">Lädt …</p></div>
+        <h3>Versionen</h3>
+        <ol class="versions">${versionList(t)}</ol>
+      </div>
+      <aside>
+        <h3>Informationen</h3>
+        <dl class="facts">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v || '–')}</dd>`).join('')}</dl>
+        <h3>Installation</h3>
+        <p class="sub small">SiteSmith erstellt wahlweise nur lokal oder zusätzlich ein GitHub-Repo, verknüpft Pages (bei HTML), legt <code>meta/</code> mit Projekt-UUID an, schreibt ein README und startet eine localhost-Preview.</p>
+        <h3>GitHub</h3>
+        <p class="sub small">${GH.connected ? `Verbunden als ${esc(GH.user.login)} – Repo-Erstellung möglich.` : 'Nicht verbunden – Anmeldung erfolgt bei Bedarf im Install-Dialog.'}</p>
+      </aside>
+    </div>`;
   icons();
+  $('#dBack').addEventListener('click', () => leaveDetailView('market'));
+  $('#dInstall').addEventListener('click', () => openInstall(CURRENT));
+  $('#dZip').addEventListener('click', async () => {
+    if (!CURRENT) return;
+    toast('Lade ' + CURRENT.zip + ' …');
+    const r = await window.studio.downloadZip(CURRENT);
+    toast(r.ok ? 'Gespeichert: ' + r.path : 'Download fehlgeschlagen: ' + r.error + ' – Internetverbindung prüfen.', 6000);
+  });
+  startDetailPreview();
+}
+
+async function startDetailPreview() {
+  const snap = DETAIL;
+  if (!snap) return;
+  const t = snap.template;
+  const urlEl = $('#dPvUrl');
+  try {
+    const r = await window.studio.previewTemplate(t);
+    if (!DETAIL || DETAIL.template !== t) {
+      if (r.ok) { try { await window.studio.previewTemplateStop(r.port, r.tmpPath); } catch {} }
+      return;
+    }
+    if (!r.ok) { if (urlEl) urlEl.textContent = 'Preview fehlgeschlagen: ' + r.error + ' – Internetverbindung prüfen.'; return; }
+    DETAIL.port = r.port;
+    DETAIL.tmp = r.tmpPath;
+    DETAIL.url = r.url;
+    if (urlEl) urlEl.textContent = r.url;
+    const wv = $('#dPvView');
+    if (wv) {
+      wv.src = r.url;
+      try { wv.addEventListener('did-finish-load', () => autoCaptureDetail()); } catch {}
+      setTimeout(() => autoCaptureDetail(), 8000);
+    }
+    loadGallery();
+  } catch (e) {
+    if (urlEl) urlEl.textContent = 'Preview fehlgeschlagen: ' + e.message;
+  }
+}
+
+// Beim Ansehen: automatisch Thumbnail + Preview-UUID anlegen und mappen
+async function autoCaptureDetail() {
+  if (!DETAIL || DETAIL.captured || !DETAIL.url) return;
+  DETAIL.captured = true;
+  try {
+    const r = await window.studio.previewCapture({ url: DETAIL.url, template: DETAIL.template });
+    if (!DETAIL) return;
+    if (r.ok) {
+      toast('Thumbnail gespeichert (Preview-UUID ' + String(r.previewId).slice(0, 8) + ' …).');
+      loadGallery();
+    }
+  } catch {}
+}
+
+async function loadGallery() {
+  if (!DETAIL) return;
+  const tid = DETAIL.template.id;
+  let r;
+  try { r = await window.studio.metaList({ templateId: tid }); } catch { return; }
+  if (!DETAIL || DETAIL.template.id !== tid || !r.ok) return;
+  const cards = r.entries.map((e) => `<span class="thumb" title="Preview-UUID ${esc(e.previewId)} · ${esc(e.at || '')}"><img src="${e.dataUrl}" alt="Thumbnail ${esc(String(e.previewId).slice(0, 8))}" /></span>`).join('');
+  const g = $('#dGallery');
+  if (g) g.innerHTML = r.entries.length ? cards : '<p class="sub small">Noch keine Thumbnails.</p>';
+  const th = $('#dThumbs');
+  if (th) th.innerHTML = r.entries.length ? r.entries.slice(0, 4).map((e) => `<span class="thumb sm" title="Preview-UUID ${esc(e.previewId)}"><img src="${e.dataUrl}" alt="Thumbnail" /></span>`).join('') : '<span class="sub small">Thumbnails werden beim Ansehen automatisch erstellt (UUID-gemapped).</span>';
 }
 
 // ---------- Status ----------
@@ -243,9 +361,18 @@ async function cardPreview(t, btn) {
   const r = await window.studio.previewTemplate(t);
   if (btn) btn.disabled = false;
   if (!r.ok) { $('#pvUrl').textContent = 'Fehler: ' + r.error + ' – prüfe die Internetverbindung und versuche es erneut.'; return; }
-  PV = { port: r.port, tmp: r.tmpPath };
+  PV = { port: r.port, tmp: r.tmpPath, url: r.url, template: t, targetDir: null, captured: false };
   $('#pvUrl').textContent = r.url;
   $('#pvView').src = r.url;
+  autoCapturePv();
+}
+async function autoCapturePv() {
+  if (!PV || PV.captured || !PV.url || !PV.template) return;
+  PV.captured = true;
+  try {
+    const r = await window.studio.previewCapture({ url: PV.url, template: PV.template, targetDir: PV.targetDir || null });
+    if (r.ok) toast('Thumbnail gespeichert (Preview-UUID ' + String(r.previewId).slice(0, 8) + ' …).');
+  } catch {}
 }
 async function closePv() {
   if (PV.port != null) await window.studio.previewTemplateStop(PV.port, PV.tmp);
@@ -253,17 +380,18 @@ async function closePv() {
   try { $('#pvView').src = 'about:blank'; } catch {}
   closeOverlay('pvModal');
 }
-function openPv(title, url, port, tmp) {
+function openPv(title, url, port, tmp, extra) {
   $('#pvTitle').textContent = 'Preview: ' + title;
   $('#pvUrl').textContent = url;
-  PV = { port, tmp };
+  PV = { port, tmp, url, template: (extra && extra.template) || null, targetDir: (extra && extra.targetDir) || null, captured: false };
   openOverlay('pvModal');
   $('#pvView').src = url;
+  autoCapturePv();
 }
 
 // ---------- Install-Dialog ----------
 const INST_STEPS = [
-  ['download', 'Template herunterladen'], ['extract', 'Entpacken'], ['deps', 'Abhängigkeiten (npm)'],
+  ['download', 'Template herunterladen'], ['extract', 'Entpacken'], ['meta', 'Meta-Ordner (UUID)'], ['deps', 'Abhängigkeiten (npm)'],
   ['readme', 'README schreiben'], ['git', 'Lokales Git-Repo'], ['repo', 'GitHub-Repo erstellen'],
   ['push', 'Pushen'], ['pages', 'Pages verknüpfen'],
 ];
@@ -403,10 +531,10 @@ function showInstallResult(r) {
     if (r.pagesUrl) mk('globe', 'Pages', 'Veröffentlichte Seite öffnen', () => window.studio.openExternal(r.pagesUrl));
     if (r.localPath) mk('eye', 'Preview', 'Lokale Preview starten', async () => {
       const p = await window.studio.previewStart(r.localPath);
-      if (p.ok) openPv(INST.opts.repoName, p.url, p.port, null);
+      if (p.ok) openPv(INST.opts.repoName, p.url, p.port, null, { template: CURRENT, targetDir: r.localPath });
       else toast('Preview-Fehler: ' + p.error, 6000);
     });
-    store.add({ repoName: INST.opts.repoName, templateName: CURRENT.name, localPath: r.localPath, repoUrl: r.repoUrl, pagesUrl: r.pagesUrl, at: new Date().toLocaleString('de-DE') });
+    store.add({ repoName: INST.opts.repoName, templateId: CURRENT.id, templateName: CURRENT.name, localPath: r.localPath, repoUrl: r.repoUrl, pagesUrl: r.pagesUrl, at: new Date().toLocaleString('de-DE') });
     const c = $('#installedCount'); c.textContent = store.installs.length; c.classList.remove('hidden');
     LAST_INSTALL = r.localPath;
     toast('Installation erfolgreich.');
@@ -569,7 +697,7 @@ document.addEventListener('DOMContentLoaded', () => {
     else if (!$('#accountDialog').classList.contains('hidden')) closeOverlay('accountDialog');
     else if (!$('#installDialog').classList.contains('hidden')) { if (!INST || !INST.busy) closeOverlay('installDialog'); }
     else if (!$('#setupOverlay').classList.contains('hidden')) closeSetup();
-    else if (!$('#detailPanel').classList.contains('hidden')) closeOverlay('detailPanel');
+    else if (VIEW === 'detail') leaveDetailView('market');
   });
 
   // Install-Dialog
@@ -638,15 +766,6 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#setupRetry').addEventListener('click', setupRun);
   $('#setupLater').addEventListener('click', closeSetup);
   $('#setupClose').addEventListener('click', closeSetup);
-
-  // Detail
-  $('#dInstallBtn').addEventListener('click', () => openInstall(CURRENT));
-  $('#dZipBtn').addEventListener('click', async () => {
-    if (!CURRENT) return;
-    toast('Lade ' + CURRENT.zip + ' …');
-    const r = await window.studio.downloadZip(CURRENT);
-    toast(r.ok ? 'Gespeichert: ' + r.path : 'Download fehlgeschlagen: ' + r.error + ' – Internetverbindung prüfen.', 6000);
-  });
 
   window.addEventListener('offline', () => toast('Verbindung verloren – SiteSmith arbeitet offline weiter, Downloads pausieren.', 6000));
   window.addEventListener('online', () => toast('Wieder online.'));

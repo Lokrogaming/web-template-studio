@@ -672,6 +672,13 @@ ipcMain.handle('workflow-install', async (e, template, repoName, options = {}) =
     });
     if (cancelled()) throw { cancelled: true };
 
+    // meta/-Ordner mit Projekt-UUID anlegen (wird mit committet)
+    await runStep('meta', async () => {
+      ensureProjectMeta(target, template);
+      log('meta/ mit Projekt-UUID angelegt');
+    });
+    if (cancelled()) throw { cancelled: true };
+
     const hasPkg = fs.existsSync(path.join(target, 'package.json'));
     if (hasPkg) {
       await runStep('deps', async () => {
@@ -855,6 +862,137 @@ ipcMain.handle('preview-template-stop', async (_e, port, tmpPath) => {
   return { ok: true };
 });
 
+// ---------- Meta & UUIDs ----------
+// Jedes installierte Projekt bekommt meta/meta.json (projectId + Preview-Mapping).
+// Thumbnails sind Screenshots (UUID-Dateinamen), Previews bekommen je eine UUID.
+function newUuid() {
+  try { return require('crypto').randomUUID(); } catch { return 'id-' + Date.now() + '-' + Math.floor(Math.random() * 1e9); }
+}
+function metaJsonPath(target) { return path.join(target, 'meta', 'meta.json'); }
+function readProjectMeta(target) {
+  try {
+    const f = metaJsonPath(target);
+    if (!fs.existsSync(f)) return null;
+    return JSON.parse(fs.readFileSync(f, 'utf8'));
+  } catch { return null; }
+}
+function ensureProjectMeta(target, template) {
+  const metaDir = path.join(target, 'meta');
+  const thumbs = path.join(metaDir, 'thumbnails');
+  fs.mkdirSync(thumbs, { recursive: true });
+  let meta = readProjectMeta(target);
+  if (!meta || !meta.projectId) {
+    meta = {
+      projectId: newUuid(),
+      templateId: (template && template.id) || null,
+      templateName: (template && template.name) || null,
+      templateVersion: (template && template.version) || null,
+      installedAt: new Date().toISOString(),
+      previews: [],
+    };
+  } else {
+    if (template && template.id) meta.templateId = template.id;
+    if (template && template.name) meta.templateName = template.name;
+    if (template && template.version) meta.templateVersion = template.version;
+  }
+  fs.writeFileSync(metaJsonPath(target), JSON.stringify(meta, null, 2), 'utf8');
+  return meta;
+}
+function addPreviewToMeta(target, entry) {
+  const meta = ensureProjectMeta(target, null);
+  meta.previews = Array.isArray(meta.previews) ? meta.previews : [];
+  meta.previews.unshift({ previewId: entry.previewId, thumbnail: entry.thumbnail, at: entry.at, source: entry.source || 'preview' });
+  meta.previews = meta.previews.slice(0, 20);
+  fs.writeFileSync(metaJsonPath(target), JSON.stringify(meta, null, 2), 'utf8');
+  return meta;
+}
+function previewCacheDir(templateId) {
+  return path.join(app.getPath('userData'), 'preview-cache', String(templateId || 'unknown'));
+}
+
+// Screenshot einer URL via unsichtbarem Offscreen-Fenster; speichert Thumbnail + Mapping.
+ipcMain.handle('preview-capture', async (_e, payload = {}) => {
+  const { url, template, targetDir } = payload;
+  if (!url) return { ok: false, error: 'Keine URL für Screenshot.' };
+  const previewId = newUuid();
+  const thumbId = newUuid();
+  const fileName = thumbId + '.png';
+  let win = null;
+  try {
+    win = new BrowserWindow({ width: 1280, height: 800, show: false, webPreferences: { offscreen: true } });
+    await win.loadURL(url);
+    await new Promise((r) => setTimeout(r, 2200));
+    if (win.isDestroyed()) throw new Error('Fenster unerwartet geschlossen.');
+    const img = await win.capturePage();
+    const png = img.toPNG();
+    const at = new Date().toISOString();
+    let savedPath;
+    if (targetDir && fs.existsSync(targetDir)) {
+      const thumbs = path.join(targetDir, 'meta', 'thumbnails');
+      fs.mkdirSync(thumbs, { recursive: true });
+      savedPath = path.join(thumbs, fileName);
+      fs.writeFileSync(savedPath, png);
+      addPreviewToMeta(targetDir, { previewId, thumbnail: 'thumbnails/' + fileName, at, source: 'preview' });
+    } else {
+      const dir = path.join(previewCacheDir(template && template.id), 'thumbnails');
+      fs.mkdirSync(dir, { recursive: true });
+      savedPath = path.join(dir, fileName);
+      fs.writeFileSync(savedPath, png);
+      // Cache-JSON pflegen (max. 10)
+      const cf = path.join(previewCacheDir(template && template.id), 'previews.json');
+      let list = [];
+      try { if (fs.existsSync(cf)) list = JSON.parse(fs.readFileSync(cf, 'utf8')); } catch {}
+      if (!Array.isArray(list)) list = [];
+      list.unshift({ previewId, thumbnail: fileName, at, templateId: template && template.id });
+      list = list.slice(0, 10);
+      try {
+        for (const gone of list.slice(10)) { try { fs.unlinkSync(path.join(dir, gone.thumbnail)); } catch {} }
+      } catch {}
+      fs.writeFileSync(cf, JSON.stringify(list, null, 2), 'utf8');
+    }
+    return { ok: true, previewId, thumbId, path: savedPath, dataUrl: 'data:image/png;base64,' + png.toString('base64') };
+  } catch (err) {
+    return { ok: false, error: 'Screenshot fehlgeschlagen: ' + err.message };
+  } finally {
+    try { if (win && !win.isDestroyed()) win.close(); } catch {}
+  }
+});
+
+// Thumbnails + Mapping für Galerie laden (Projekt-meta/ oder Preview-Cache)
+ipcMain.handle('meta-list', async (_e, payload = {}) => {
+  try {
+    const { targetDir, templateId } = payload;
+    let base;
+    let entries;
+    if (targetDir && fs.existsSync(path.join(targetDir, 'meta'))) {
+      const meta = readProjectMeta(targetDir);
+      base = path.join(targetDir, 'meta');
+      entries = (meta && meta.previews) || [];
+    } else if (templateId) {
+      const cf = path.join(previewCacheDir(templateId), 'previews.json');
+      base = path.join(previewCacheDir(templateId), 'thumbnails');
+      try { entries = fs.existsSync(cf) ? JSON.parse(fs.readFileSync(cf, 'utf8')) : []; } catch { entries = []; }
+      if (!Array.isArray(entries)) entries = [];
+      entries = entries.map((x) => ({ previewId: x.previewId, thumbnail: x.thumbnail, at: x.at }));
+    } else {
+      return { ok: true, entries: [] };
+    }
+    const out = [];
+    for (const en of entries.slice(0, 12)) {
+      const f = path.join(base, en.thumbnail || '');
+      if (!en.thumbnail || !fs.existsSync(f)) continue;
+      try {
+        const buf = fs.readFileSync(f);
+        if (buf.length > 2 * 1024 * 1024) continue;
+        out.push({ previewId: en.previewId, at: en.at, dataUrl: 'data:image/png;base64,' + buf.toString('base64') });
+      } catch {}
+    }
+    return { ok: true, entries: out };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
 ipcMain.handle('preview-start', async (_e, localPath) => {
   try {
     if (!localPath || !fs.existsSync(localPath)) return { ok: false, error: 'Ordner nicht gefunden: ' + localPath };
@@ -882,3 +1020,6 @@ ipcMain.handle('preview-stop', async (_e, port) => {
 
 ipcMain.handle('open-folder', async (_e, p) => { await shell.openPath(p); return { ok: true }; });
 ipcMain.handle('open-external', async (_e, url) => { await shell.openExternal(url); return { ok: true }; });
+
+// Für Tests (bleibt in Electron ungenutzt)
+try { if (require.main !== module) module.exports = { checkNode, ensureProjectMeta, readProjectMeta, newUuid }; } catch {}

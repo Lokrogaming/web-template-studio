@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('studio', {
   previewStop: (port) => ipcRenderer.invoke('preview-stop', port),
   previewTemplate: (template) => ipcRenderer.invoke('preview-template', template),
   previewTemplateStop: (port, tmpPath) => ipcRenderer.invoke('preview-template-stop', port, tmpPath),
+  previewCapture: (payload) => ipcRenderer.invoke('preview-capture', payload),
+  metaList: (payload) => ipcRenderer.invoke('meta-list', payload),
   openFolder: (p) => ipcRenderer.invoke('open-folder', p),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
 });

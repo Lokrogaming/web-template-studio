@@ -42,7 +42,7 @@ if (FULL && process.platform === 'win32') {
 
 (async () => {
   process.chdir(PROJ);
-  require(path.join(PROJ, 'main.js'));
+  const mainApi = require(path.join(PROJ, 'main.js'));
 
   const need = ['node-status', 'node-setup-start', 'node-setup-state', 'node-setup-cancel', 'workflow-install', 'install-cancel', 'pick-folder'];
   const missing = need.filter((h) => !handlers[h]);
@@ -66,6 +66,23 @@ if (FULL && process.platform === 'win32') {
     console.log('REUSE-TEST FEHLGESCHLAGEN'); process.exit(1);
   }
   console.log('NODE-TEST OK');
+
+  // Meta-UUID-System
+  const uuidOk = (u) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(u);
+  const u1 = mainApi.newUuid();
+  console.log('UUID-Format:', uuidOk(u1) ? 'OK' : 'FEHLER ' + u1);
+  if (!uuidOk(u1)) process.exit(1);
+  const metaTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sitesmith-meta-'));
+  const meta = mainApi.ensureProjectMeta(metaTmp, { id: 't1', name: 'T1', version: '9.9' });
+  const onDisk = JSON.parse(fs.readFileSync(path.join(metaTmp, 'meta', 'meta.json'), 'utf8'));
+  const metaOk = uuidOk(meta.projectId) && meta.templateId === 't1' && Array.isArray(onDisk.previews) && fs.existsSync(path.join(metaTmp, 'meta', 'thumbnails'));
+  console.log('meta/-Ordner:', metaOk ? 'OK' : 'FEHLER');
+  if (!metaOk) process.exit(1);
+  // Idempotenz: zweite Anlage behält projectId
+  const meta2 = mainApi.ensureProjectMeta(metaTmp, { id: 't1', name: 'T1', version: '9.9' });
+  if (meta2.projectId !== meta.projectId) { console.log('META-REUSE FEHLGESCHLAGEN'); process.exit(1); }
+  console.log('META-TEST OK');
+  try { fs.rmSync(metaTmp, { recursive: true, force: true }); } catch {}
   try { fs.rmSync(TMP_USER, { recursive: true, force: true }); } catch {}
   process.exit(0);
 })().catch((e) => { console.error('TEST-CRASH:', e); process.exit(1); });

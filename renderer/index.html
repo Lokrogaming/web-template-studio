@@ -55,30 +55,12 @@
         <div class="view-head"><div><h2>Installiert</h2><p class="sub">Deine per Workflow installierten Projekte (lokal gespeichert).</p></div></div>
         <div id="installedList" class="installed"></div>
       </section>
+      <!-- Template-Detailseite (eigene View, kein Overlay) -->
+      <section id="view-detail" class="hidden" aria-label="Template-Details">
+        <div id="detailContent"></div>
+      </section>
     </main>
   </div>
-
-  <!-- ============ Detail-Panel ============ -->
-  <aside id="detailPanel" class="detail hidden" aria-label="Template-Details">
-    <div class="detail-scroll">
-      <button class="btn ghost sm" data-close="detailPanel"><i data-lucide="chevron-left"></i>Zurück</button>
-      <img id="dImg" class="detail-img" alt="Template-Vorschau" />
-      <div class="detail-head"><h2 id="dName"></h2><span id="dVerified"></span></div>
-      <p id="dDesc" class="sub"></p>
-      <div id="dStacks" class="stacks"></div>
-      <div id="dDeploy" class="deploy-flags"></div>
-      <h3>Informationen</h3>
-      <dl id="dBody" class="facts"></dl>
-      <h3>Installation</h3>
-      <p class="sub small">SiteSmith erstellt wahlweise nur lokal oder zusätzlich ein GitHub-Repo, verknüpft Pages (bei HTML), schreibt ein README mit Deploy-Anleitung und startet eine localhost-Preview.</p>
-      <h3>GitHub</h3>
-      <p id="dGh" class="sub small">…</p>
-      <div class="detail-cta">
-        <button id="dInstallBtn" class="btn primary big"><i data-lucide="package"></i>Install Template</button>
-        <button id="dZipBtn" class="btn muted"><i data-lucide="download"></i>.zip laden<span class="sub2">Für Erfahrene</span></button>
-      </div>
-    </div>
-  </aside>
 </div>
 
 <!-- ============ Install-Dialog (nur nach Klick auf Installieren) ============ -->
