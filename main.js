@@ -247,8 +247,12 @@ function exchangeOAuthCode(code, verifier, redirectUri) {
         try {
           const j = JSON.parse(raw);
           if (!j.access_token) {
+            let hint = '';
+            if (j.error === 'incorrect_client_credentials') {
+              hint = ' [Tipp: Eine numerische App-ID bedeutet GitHub-App – SiteSmith braucht eine OAuth-App (Profil → Settings → Developer settings → OAuth Apps, nicht GitHub Apps), Callback-URL http://127.0.0.1/callback. Außerdem ggf. Client Secret in SiteSmith hinterlegen (Install-Dialog → „Falls GitHub ein Client Secret verlangt“).]';
+            }
             const code = j.error ? '`' + j.error + '` ' : '';
-            return resolve({ ok: false, error: code + (j.error_description || j.error || 'Kein Token erhalten.') });
+            return resolve({ ok: false, error: code + (j.error_description || j.error || 'Kein Token erhalten.') + hint });
           }
           const me = await githubApi('/user', j.access_token);
           resolve({
