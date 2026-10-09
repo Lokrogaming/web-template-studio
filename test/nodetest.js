@@ -83,6 +83,12 @@ if (FULL && process.platform === 'win32') {
   if (meta2.projectId !== meta.projectId) { console.log('META-REUSE FEHLGESCHLAGEN'); process.exit(1); }
   console.log('META-TEST OK');
   try { fs.rmSync(metaTmp, { recursive: true, force: true }); } catch {}
-  try { fs.rmSync(TMP_USER, { recursive: true, force: true }); } catch {}
+
+  // npm-Env-Sanitize: npm_config_allow_scripts darf nicht an Kindprozesse durchgereicht werden
+  const cleaned = mainApi.cleanNpmEnv({ PATH: 'x', npm_config_allow_scripts: 'esbuild', OTHER: 'y' });
+  const envOk = !('npm_config_allow_scripts' in cleaned) && cleaned.PATH === 'x' && cleaned.OTHER === 'y';
+  console.log('npm-Env-Sanitize:', envOk ? 'OK' : 'FEHLER');
+  if (!envOk) process.exit(1);
+  console.log('ENV-TEST OK');
   process.exit(0);
 })().catch((e) => { console.error('TEST-CRASH:', e); process.exit(1); });

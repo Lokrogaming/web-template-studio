@@ -558,21 +558,38 @@ ipcMain.handle('node-setup-start', async (e) => {
   }
 });
 
+// npm_config_*-Vererbung (v. a. allow_scripts aus User-/Global-.npmrc, z. B. via `npm start`
+// als npm_config_allow_scripts vererbt) lässt Kind-`npm install` mit EALLOWSCRIPTS sterben.
+// Daher strikt aus der Umgebung des Kindprozesses entfernen (npm-eigener Fix-Ansatz, vgl. npm/cli#9913).
+function cleanNpmEnv(base) {
+  const env = { ...(base || process.env) };
+  for (const k of Object.keys(env)) {
+    if (k.toLowerCase() === 'npm_config_allow_scripts') delete env[k];
+  }
+  return env;
+}
+
 // npm install im Projektordner – nutzt gebündeltes oder System-Node
 async function npmInstall(cwd) {
   const st = await checkNode();
   if (!st.ok) throw new Error('Node.js fehlt oder ist zu alt (min. v' + NODE_MIN_MAJOR + ').');
-  let cmd, args;
+  let cmd, args, env;
   if (st.source === 'bundled') {
     const marker = readNodeMarker();
     cmd = path.join(path.dirname(marker.exe), 'npm.cmd');
     args = ['install', '--no-audit', '--no-fund', '--loglevel=error'];
+    env = cleanNpmEnv({ ...process.env, PATH: path.dirname(marker.exe) + path.delimiter + process.env.PATH });
   } else {
     // System-npm (.cmd) via cmd.exe mit statischen Args aufrufen
     cmd = 'cmd.exe';
     args = ['/d', '/s', '/c', 'npm install --no-audit --no-fund --loglevel=error'];
+    env = cleanNpmEnv();
   }
-  const r = await execFileAsync(cmd, args, { cwd, timeout: 5 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 });
+  const r = await execFileAsync(cmd, args, { cwd, env, timeout: 5 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 });
+  const combined = String(r.stdout || '') + '\n' + String(r.stderr || '') + '\n' + String((r.error && r.error.message) || '');
+  if (/EALLOWSCRIPTS/.test(combined)) {
+    throw new Error('npm blockiert Install-Skripte (EALLOWSCRIPTS) durch vererbte Umgebung. SiteSmith auf den neuesten Stand bringen (Fix enthalten) und erneut versuchen.');
+  }
   if (r.error) throw new Error('npm install fehlgeschlagen: ' + (r.stderr || r.error.message).slice(0, 600));
   return r;
 }
@@ -1345,4 +1362,4 @@ ipcMain.handle('open-folder', async (_e, p) => { await shell.openPath(p); return
 ipcMain.handle('open-external', async (_e, url) => { await shell.openExternal(url); return { ok: true }; });
 
 // Für Tests (bleibt in Electron ungenutzt)
-try { if (require.main !== module) module.exports = { checkNode, ensureProjectMeta, readProjectMeta, newUuid, applyPlaceholders, validateConfig, withDefaults, applyPlaceholdersToDir }; } catch {}
+try { if (require.main !== module) module.exports = { checkNode, ensureProjectMeta, readProjectMeta, newUuid, applyPlaceholders, validateConfig, withDefaults, applyPlaceholdersToDir, cleanNpmEnv }; } catch {}
