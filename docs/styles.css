@@ -1,0 +1,11 @@
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial;background:#0b1020;color:#e6ebf5}
+.nav{display:flex;justify-content:space-between;padding:14px 22px;border-bottom:1px solid #26314f}.brand{font-weight:800}.link{color:#a5b4fc}
+.hero{max-width:900px;margin:auto;padding:48px 22px}.kicker{color:#4ade80;text-transform:uppercase;font-size:12px;letter-spacing:.1em}
+h1{font-size:40px;margin:8px 0}h1 span{color:#a5b4fc}.sub{color:#93a0bb;font-size:17px}
+.cta{margin:24px 0}#dlBtn{background:#3b4263;color:#aab; border:0;padding:14px 22px;border-radius:12px;font-size:16px;cursor:not-allowed;opacity:.65}
+#dlBtn:disabled{cursor:not-allowed}
+.note{color:#93a0bb;font-size:14px}.note a{color:#a5b4fc}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:24px 0}
+.card{background:#151d33;border:1px solid #26314f;border-radius:14px;padding:16px}
+ol{line-height:1.7;color:#c9d2e8}code{background:#0007;padding:1px 6px;border-radius:6px}
+footer{border-top:1px solid #26314f;padding:16px;text-align:center;color:#93a0bb}footer a{color:#a5b4fc}
