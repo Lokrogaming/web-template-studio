@@ -1,20 +1,21 @@
-# Web Template Studio
+# SiteSmith
 
 Desktop-Marketplace-App (Electron) + Website (GitHub Pages) für Website-Templates.
 
-- **Templates:** liegen in [`Lokrogaming/web-templates`](https://github.com/Lokrogaming/web-templates) als `templates/*.zip` (je mit `.temp-config`) + `templates.json`-Mapping (Name ↔ Zip + `verified`-Flag).
-- **App:** browsen wie in einem Marketplace, Card → Modal *„Willst du diese Vorlage nutzen?“* mit zwei Buttons:
+- **Templates:** liegen in [`Lokrogaming/web-templates`](https://github.com/Lokrogaming/web-templates) als `templates/*.zip` (je mit `.temp-config`) + `templates.json`-Mapping (Name ↔ Zip + `verified`-Flag, optional `preview`-Bild + `deploy`-Flags).
+- **App:** browsen wie in einem Marketplace (Sidebar + Topbar mit Suche/GitHub-Menü), Card mit Preview-Bild, Stack-Badges (Mono), Deploy-Indikatoren und Buttons **Install Template** / **Preview** / **…**.
+- Card → Modal *„Willst du diese Vorlage nutzen?“* mit zwei Buttons:
   - oben, enabled: **Per Workflow automatisieren (empfohlen)**
   - unten, muted: **.zip laden (Für Erfahrene)**
-- **Detailseiten:** per **Mehr / …** – zeigt alle Infos aus der Config (Art, Sprachen, Description, Version, Author, Latest updated) + Deploy-Anleitung.
-- **Workflow:** prüft GitHub-Verknüpfung (falls nein → Anmeldung per Token), Repo-Erstellung (per Modal umbenennbar), bei HTML automatische Pages-Verknüpfung, Node.js/npm-Check (ggf. Auto-Install via winget), Preview (statischer localhost-Server, Anzeige per `webview`).
-- **Verified:** `verified: true` im Mapping → Icon auf Card + Detailseite.
-- **Website:** `website/` (wird per Pages gehostet) – nur Infoseite + Installer-Download-Button, **aktuell deaktiviert**, bis die App ordentlich aufgesetzt ist.
+- **Detail-Panel (rechts):** großes Preview-Bild, alle Infos aus der Config (Art, Sprachen, Description, Version, Author, Latest updated), Installationsmethode, GitHub-Status.
+- **Workflow:** prüft GitHub-Verknüpfung (falls nein → Anmeldung per Token), Repo-Erstellung (frei umbenennbar) **inkl. auto-generiertem README mit Deploy-Anleitung**, bei HTML automatische Pages-Verknüpfung, Node.js/npm-Check (ggf. Auto-Install via winget), Preview (localhost, Anzeige per `webview`).
+- **Installiert-Ansicht:** Verlauf der Workflow-Installationen (lokal) mit Ordner-/Repo-/Pages-/Preview-Aktionen.
+- **Verified:** `verified: true` im Mapping → Icon auf Card + Detail-Panel.
+- **Website:** `website/` (gespiegelt `docs/` für Pages-Legacy) – nur Infoseite + Installer-Download-Button, **aktuell deaktiviert**, bis die App fertig aufgesetzt ist.
 
 ## Entwickeln
 
 ```powershell
-cd web-template-studio
 npm install
 npm start
 ```
@@ -23,17 +24,18 @@ npm start
 
 ```powershell
 npm run dist
-# → release/Web Template Studio Setup *.exe (+ portable)
+# → release/SiteSmith Setup *.exe (+ portable)
 ```
 
-Icon: `assets/icon.ico` vor dem Bauen ablegen (derzeit Platzhalter-Pfad in package.json).
+Logo: finales Hammer-Logo folgt (derzeit geometrisches „S“-Platzhalter-Mark).
 
 ## Konfiguration
 
 - Repo: `Lokrogaming/web-templates`, Branch `main`
 - Mapping: `https://raw.githubusercontent.com/Lokrogaming/web-templates/main/templates.json`
 - Zips: `https://raw.githubusercontent.com/Lokrogaming/web-templates/main/templates/<zip>`
-- Workspace lokal: `~/WebTemplateStudio/<repo-name>`
+- Previews: `https://raw.githubusercontent.com/Lokrogaming/web-templates/main/<preview>`
+- Workspace lokal: `~/SiteSmith/<repo-name>`
 
 ## Sicherheit
 

@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('studio', {
   workflowInstall: (template, repoName) => ipcRenderer.invoke('workflow-install', template, repoName),
   previewStart: (localPath) => ipcRenderer.invoke('preview-start', localPath),
   previewStop: (port) => ipcRenderer.invoke('preview-stop', port),
+  previewTemplate: (template) => ipcRenderer.invoke('preview-template', template),
+  previewTemplateStop: (port, tmpPath) => ipcRenderer.invoke('preview-template-stop', port, tmpPath),
   openFolder: (p) => ipcRenderer.invoke('open-folder', p),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
 });

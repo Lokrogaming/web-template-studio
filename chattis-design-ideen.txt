@@ -1,0 +1,106 @@
+Template cards should display:
+Template preview image
+
+Template name
+
+Short description
+
+Technology/stack badges such as HTML, CSS, JS, React, JSX, TSX
+
+GitHub Pages / Vercel / other deployment indicators where relevant
+
+Install button
+
+Preview button
+
+--------------
+Visual direction:
+
+Modern Tailwind CSS-inspired design
+
+Dark-first interface
+
+Clean, minimal and developer-focused
+
+Premium but not overly flashy
+
+Strong use of whitespace and clear visual hierarchy
+
+Rounded corners, subtle borders and soft shadows
+
+Slight glassmorphism where appropriate
+
+Smooth micro-interactions and hover animations
+
+Avoid excessive gradients, huge text, or generic SaaS aesthetics
+
+---------------
+Color palette:
+
+Background: near-black / charcoal (#09090B)
+
+Cards: dark gray (#111113)
+
+Secondary surfaces: #18181B
+
+Borders: subtle gray (#27272A)
+
+Primary text: #FAFAFA
+
+Secondary text: #A1A1AA
+
+Accent: electric blue / indigo (#6366F1)
+
+Success: green (#22C55E)
+
+Destructive/error: red (#EF4444)
+
+------------------
+Typography:
+
+Use Inter or Geist for the UI
+
+Use JetBrains Mono for code, technical information and stack labels
+
+Clear font hierarchy with medium/bold headings
+
+Compact but readable UI
+
+-------------------
+App structure:
+
+Left sidebar navigation
+
+Main content area
+
+Optional right-side preview/details panel
+
+Top bar with search, GitHub account and user menu
+
+-------------------------
+The main CTA should feel like a developer tool action, for example:
+Install Template
+
+--------------------------
+When a template is selected, show:
+Large live preview
+
+Template information
+
+Supported technologies
+
+Installation method
+
+Repository configuration
+
+GitHub Integration
+
+-------------------------------
+GitHub integration should feel native and trustworthy. Users should be able to sign in with GitHub and optionally let PageKit automatically create a repository, configure the project and generate a README with deployment instructions.
+
+Use subtle animations for page transitions, buttons, cards and previews. Keep the UI performant and avoid unnecessary animation.
+
+Overall feeling:
+Vercel + Linear + GitHub Desktop + Tailwind UI, but with its own identity.
+
+The PageKit logo should be simple and geometric. The branding should work equally well as a desktop application icon, website logo and GitHub organization avatar.

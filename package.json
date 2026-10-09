@@ -1,7 +1,7 @@
 {
-  "name": "web-template-studio",
-  "version": "0.1.0",
-  "description": "Desktop Marketplace-App für Website-Templates: browsen, .zip laden oder per Workflow automatisiert installieren (GitHub-Repo + Pages + Preview).",
+  "name": "sitesmith",
+  "version": "0.2.0",
+  "description": "SiteSmith – Desktop Marketplace-App fuer Website-Templates: browsen, .zip laden oder per Workflow automatisiert installieren (GitHub-Repo + Pages + Preview).",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -18,8 +18,8 @@
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.lokrogaming.webtemplatestudio",
-    "productName": "Web Template Studio",
+    "appId": "dev.lokro.sitesmith",
+    "productName": "SiteSmith",
     "directories": {
       "output": "release"
     },
@@ -40,7 +40,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "Web Template Studio"
+      "shortcutName": "SiteSmith"
     }
   }
 }

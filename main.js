@@ -9,8 +9,10 @@ const AdmZip = require('adm-zip');
 
 const TEMPLATE_REPO = 'Lokrogaming/web-templates';
 const TEMPLATE_BRANCH = 'main';
+const APP_NAME = 'SiteSmith';
 const MAPPING_URL = `https://raw.githubusercontent.com/${TEMPLATE_REPO}/${TEMPLATE_BRANCH}/templates.json`;
 const ZIP_BASE_URL = `https://raw.githubusercontent.com/${TEMPLATE_REPO}/${TEMPLATE_BRANCH}/templates/`;
+const RAW_BASE_URL = `https://raw.githubusercontent.com/${TEMPLATE_REPO}/${TEMPLATE_BRANCH}/`;
 
 const servers = new Map(); // port -> http.Server
 
@@ -135,7 +137,8 @@ function createWindow() {
     width: 1220,
     height: 840,
     autoHideMenuBar: true,
-    backgroundColor: '#0b1020',
+    title: 'SiteSmith',
+    backgroundColor: '#09090B',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -155,11 +158,13 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 // ---------- IPC ----------
 
 ipcMain.handle('get-config', async () => ({
+  appName: APP_NAME,
   templateRepo: TEMPLATE_REPO,
   branch: TEMPLATE_BRANCH,
   mappingUrl: MAPPING_URL,
   zipBaseUrl: ZIP_BASE_URL,
-  workspace: path.join(os.homedir(), 'WebTemplateStudio'),
+  rawBaseUrl: RAW_BASE_URL,
+  workspace: path.join(os.homedir(), 'SiteSmith'),
   downloads: app.getPath('downloads'),
 }));
 
@@ -262,7 +267,7 @@ ipcMain.handle('workflow-install', async (_e, template, repoName) => {
     log('✓ Download OK');
 
     // 2. Entpacken
-    const target = path.join(os.homedir(), 'WebTemplateStudio', repoName);
+    const target = path.join(os.homedir(), 'SiteSmith', repoName);
     if (fs.existsSync(target) && fs.readdirSync(target).length > 0) {
       return { ok: false, logs, error: 'Zielordner existiert bereits: ' + target };
     }
@@ -281,6 +286,44 @@ ipcMain.handle('workflow-install', async (_e, template, repoName) => {
     } else {
       log('! Keine .temp-config im Zip gefunden (trotzdem fortgefahren).');
     }
+
+    // README mit Deployment-Anleitung generieren (SiteSmith)
+    const isHtmlTemplate = String(template.type || '').toLowerCase().includes('html') || String(template.type || '').toLowerCase().includes('static') || fs.existsSync(path.join(target, 'index.html'));
+    const readmeGen =
+`# ${repoName}
+
+Erstellt mit **${APP_NAME}** aus dem Template **${template.name}** (v${template.version || '?'}, ID \`${template.id}\`).
+
+## Lokal starten
+
+- **Statisches HTML:** \`index.html\` im Browser öffnen – oder mit Preview-Server:
+  \`\`\`
+  npx serve .
+  \`\`\`
+- **Node-Projekt:**
+  \`\`\`
+  npm install
+  npm run dev
+  \`\`\`
+
+## Deployment
+
+- **GitHub Pages (statisch):** Repo → Settings → Pages → Deploy from branch \`main\` / \`/ (root)\`.
+  URL-Schema: \`https://<user>.github.io/${repoName}/\`.
+- **Node-Projekt:** \`npm run build\` → Ordner \`dist/\` auf Pages / Vercel / Netlify deployen.
+
+---
+_Template: ${template.name} · Author: ${template.author || '?'} · Stand: ${template.updated || '?'}._
+`;
+    try {
+      const readmePath = path.join(target, 'README.md');
+      if (!fs.existsSync(readmePath)) {
+        fs.writeFileSync(readmePath, readmeGen, 'utf8');
+        log('✓ README mit Deployment-Anleitung generiert');
+      } else {
+        log('ℹ README existiert bereits – nicht überschrieben.');
+      }
+    } catch { log('! README konnte nicht geschrieben werden (ignoriert).'); }
 
     // 3. Git init + commit
     const git = async (args) => {
@@ -325,7 +368,7 @@ ipcMain.handle('workflow-install', async (_e, template, repoName) => {
 
     // 6. Pages (nur bei html/static sinnvoll, sonst trotzdem versuchen)
     let pagesUrl = `https://${owner}.github.io/${repoName}/`;
-    const isHtml = String(template.type || '').toLowerCase().includes('html') || String(template.type || '').toLowerCase().includes('static') || fs.existsSync(path.join(target, 'index.html'));
+    const isHtml = isHtmlTemplate;
     if (isHtml) {
       log('⚙ Aktiviere GitHub Pages …');
       const pages = await githubApi(`/repos/${owner}/${repoName}/pages`, token, 'POST', {
@@ -348,6 +391,35 @@ ipcMain.handle('workflow-install', async (_e, template, repoName) => {
   } catch (e) {
     return { ok: false, logs, error: e.message };
   }
+});
+
+ipcMain.handle('preview-template', async (_e, template) => {
+  try {
+    if (!template || !template.zip) return { ok: false, error: 'Ungültiges Template.' };
+    const url = ZIP_BASE_URL + template.zip;
+    const stamp = Date.now();
+    const tmpZip = path.join(os.tmpdir(), 'sitesmith-pv-' + stamp + '-' + template.zip);
+    const tmpDir = path.join(os.tmpdir(), 'sitesmith-pv-' + stamp + '-' + (template.id || 'tpl'));
+    await downloadToFile(url, tmpZip);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    new AdmZip(tmpZip).extractAllTo(tmpDir, true);
+    try { fs.unlinkSync(tmpZip); } catch {}
+    const pkg = path.join(tmpDir, 'package.json');
+    const root = fs.existsSync(pkg) && fs.existsSync(path.join(tmpDir, 'dist')) ? path.join(tmpDir, 'dist') : tmpDir;
+    const s = await startStaticServer(root);
+    return { ok: true, ...s, tmpPath: tmpDir };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('preview-template-stop', async (_e, port, tmpPath) => {
+  const s = servers.get(Number(port));
+  if (s) { await new Promise((r) => s.close(r)); servers.delete(Number(port)); }
+  if (tmpPath) {
+    try { fs.rmSync(tmpPath, { recursive: true, force: true }); } catch {}
+  }
+  return { ok: true };
 });
 
 ipcMain.handle('preview-start', async (_e, localPath) => {
