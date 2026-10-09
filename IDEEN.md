@@ -36,6 +36,7 @@ Offen: Ob `path` (Zip-Pfad) oder `id` (Mapping-Referenz) besser ist – Tendenz:
 
 - [x] Jede Preview bekommt beim Ansehen eine UUID (`previewId`), Thumbnails heißen `<thumb-uuid>.png`.
 - [x] Installierte Projekte haben `meta/meta.json` mit `projectId` + Preview-Mapping.
+- [x] Template-Konfiguration (`config`-Schema + `{platzhalter}`) ist umgesetzt, inkl. späterem Ändern/Migrieren in den Project-Settings.
 - [ ] Templates selbst bekommen stabile UUIDs (zusätzlich zu `id`), damit Screenshots/Thumbnails auch nach Umbenennung gemappt bleiben.
 - [ ] Galerie-Einträge referenzieren Template-UUID statt Slug.
 

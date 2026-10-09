@@ -18,8 +18,16 @@ contextBridge.exposeInMainWorld('studio', {
     return () => ipcRenderer.removeListener('node-setup-progress', h);
   },
   downloadZip: (template) => ipcRenderer.invoke('download-zip', template),
-  workflowInstall: (template, repoName, options) => ipcRenderer.invoke('workflow-install', template, repoName, options),
+  workflowInstall: (template, repoName, options, extra) => ipcRenderer.invoke('workflow-install', template, repoName, options, extra),
   installCancel: () => ipcRenderer.invoke('install-cancel'),
+  installPrepare: (template) => ipcRenderer.invoke('install-prepare', template),
+  installDiscardTmp: (tmpPath) => ipcRenderer.invoke('install-discard-tmp', tmpPath),
+  projectMeta: (localPath) => ipcRenderer.invoke('project-meta', localPath),
+  templateConfig: (template) => ipcRenderer.invoke('template-config', template),
+  projectSetDescription: (payload) => ipcRenderer.invoke('project-set-description', payload),
+  projectApplyConfig: (payload) => ipcRenderer.invoke('project-apply-config', payload),
+  projectUninstallLocal: (localPath) => ipcRenderer.invoke('project-uninstall-local', localPath),
+  projectDeleteRemote: (payload) => ipcRenderer.invoke('project-delete-remote', payload),
   onInstallProgress: (cb) => {
     const h = (_e, p) => cb(p);
     ipcRenderer.on('install-progress', h);

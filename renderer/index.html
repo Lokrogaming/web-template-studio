@@ -59,6 +59,11 @@
       <section id="view-detail" class="hidden" aria-label="Template-Details">
         <div id="detailContent"></div>
       </section>
+
+      <!-- Project-Settings (eigene View unter „Installiert“) -->
+      <section id="view-settings" class="hidden" aria-label="Project-Settings">
+        <div id="settingsContent"></div>
+      </section>
     </main>
   </div>
 </div>
@@ -94,6 +99,19 @@
         <div class="spacer"></div>
         <button class="btn ghost" data-close="installDialog">Abbrechen</button>
         <button id="instStartBtn" class="btn primary"><i data-lucide="check"></i>Installation starten</button>
+      </div>
+    </div>
+
+    <!-- Stufe: Template-Konfiguration (nur bei config-Schema im Template) -->
+    <div id="instStageFields" class="hidden">
+      <p class="sub">Dieses Template ist konfigurierbar – Platzhalter wie <code>{site.name}</code> werden vor der Repo-Erstellung mit deinen Werten ersetzt.</p>
+      <div id="instFields"></div>
+      <p id="instFieldsError" class="error-text hidden" role="alert"></p>
+      <div class="dlg-actions">
+        <button id="instFieldsBack" class="btn ghost">Zurück</button>
+        <div class="spacer"></div>
+        <button class="btn ghost" data-close="installDialog">Abbrechen</button>
+        <button id="instFieldsNext" class="btn primary"><i data-lucide="check"></i>Weiter</button>
       </div>
     </div>
 

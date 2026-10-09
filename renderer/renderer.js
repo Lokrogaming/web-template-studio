@@ -23,6 +23,7 @@ const hide = (id) => document.getElementById(id).classList.add('hidden');
 const store = {
   get installs() { try { return JSON.parse(localStorage.getItem('sitesmith.installs') || '[]'); } catch { return []; } },
   add(i) { const l = store.installs; l.unshift(i); localStorage.setItem('sitesmith.installs', JSON.stringify(l.slice(0, 50))); },
+  remove(localPath) { localStorage.setItem('sitesmith.installs', JSON.stringify(store.installs.filter((x) => x.localPath !== localPath))); },
 };
 
 function toast(msg, ms = 4000) {
@@ -144,6 +145,7 @@ function setView(v) {
   $('#view-market').classList.toggle('hidden', v !== 'market');
   $('#view-installed').classList.toggle('hidden', v !== 'installed');
   $('#view-detail').classList.toggle('hidden', v !== 'detail');
+  $('#view-settings').classList.toggle('hidden', v !== 'settings');
   if (v === 'installed') renderInstalled();
   if (v !== 'detail' && DETAIL) leaveDetailView(v);
 }
@@ -178,6 +180,7 @@ function renderInstalled() {
       if (r.ok) openPv(it.repoName, r.url, r.port, null, { template: it.templateId ? { id: it.templateId } : null, targetDir: it.localPath });
       else toast('Preview-Fehler: ' + r.error, 6000);
     });
+    mk('settings', 'Einstellungen', 'Project-Settings öffnen', () => openSettings(it));
     list.appendChild(el);
   });
   icons();
@@ -396,6 +399,7 @@ const INST_STEPS = [
   ['push', 'Pushen'], ['pages', 'Pages verknüpfen'],
 ];
 let INST = null;
+let INST_GEN = 0;
 
 function stepIcon(st) {
   if (st === 'done') return '<i data-lucide="check"></i>';
@@ -404,18 +408,72 @@ function stepIcon(st) {
   if (st === 'skip') return '<i data-lucide="chevron-right"></i>';
   return '<i data-lucide="info"></i>';
 }
+
+// ---------- Konfigurations-Formular (Schema aus .temp-config) ----------
+function fieldInput(f, val) {
+  const v = esc(val ?? '');
+  const req = f.required ? ' <b class="req" title="Pflichtfeld">*</b>' : '';
+  const label = `<span>${esc(f.name || f.id)}${req} <code>{${esc(f.id)}}</code></span>`;
+  const common = `data-fid="${esc(f.id)}" aria-label="${esc(f.name || f.id)}"`;
+  let input = '';
+  if (f.type === 'textarea') input = `<textarea ${common} rows="3">${v}</textarea>`;
+  else if (f.type === 'boolean') input = `<label class="check"><input type="checkbox" ${common} ${String(val) === 'true' ? 'checked="checked"' : ''} /><span>Aktiviert</span></label>`;
+  else if (f.type === 'color') input = `<input type="color" ${common} value="${v || '#1bd96a'}" />`;
+  else if (f.type === 'select') input = `<select ${common}>${(f.options || []).map((o) => `<option value="${esc(o)}" ${String(val) === String(o) ? 'selected="selected"' : ''}>${esc(o)}</option>`).join('')}</select>`;
+  else {
+    const t = f.type === 'email' ? 'email' : f.type === 'url' ? 'url' : f.type === 'number' ? 'number' : 'text';
+    input = `<input type="${t}" ${common} value="${v}" />`;
+  }
+  return `<label class="field cfg">${label}${input}</label>`;
+}
+function renderConfigFields(container, schema, values) {
+  container.innerHTML = (schema || []).map((f) => fieldInput(f, values ? values[f.id] : '')).join('') || '<p class="sub">Keine konfigurierbaren Felder.</p>';
+  icons();
+}
+function readConfigFields(container, schema) {
+  const values = {};
+  for (const f of schema || []) {
+    const el = container.querySelector(`[data-fid="${CSS.escape(f.id)}"]`);
+    if (!el) continue;
+    values[f.id] = el.type === 'checkbox' ? (el.checked ? 'true' : 'false') : el.value;
+  }
+  return values;
+}
+function validateFields(schema, values) {
+  const bad = [];
+  for (const f of schema || []) {
+    const v = (values[f.id] ?? '').trim();
+    if (f.required && !v) { bad.push((f.name || f.id) + ' ist ein Pflichtfeld'); continue; }
+    if (v && f.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) bad.push((f.name || f.id) + ': keine gültige E-Mail');
+    if (v && f.type === 'url' && !/^https?:\/\/.+\..+/.test(v)) bad.push((f.name || f.id) + ': keine gültige URL');
+    if (v && f.type === 'number' && Number.isNaN(Number(v))) bad.push((f.name || f.id) + ': keine Zahl');
+  }
+  return bad;
+}
 function renderInstSteps(states) {
   $('#instSteps').innerHTML = INST_STEPS.filter(([id]) => !INST.skip.has(id)).map(([id, label]) =>
     `<li data-s="${states[id] || 'pending'}"><span class="st">${stepIcon(states[id] || 'pending')}</span><span class="lbl">${label}</span></li>`).join('');
   icons();
 }
 function instStage(name) {
-  ['Config', 'Auth', 'Node', 'Progress', 'Result'].forEach((s) => $('#instStage' + s).classList.toggle('hidden', s !== name));
+  ['Config', 'Fields', 'Auth', 'Node', 'Progress', 'Result'].forEach((s) => $('#instStage' + s).classList.toggle('hidden', s !== name));
+}
+
+async function cleanupPrep() {
+  if (INST && INST.prep && INST.prep.tmpPath && !INST.busy) {
+    try { await window.studio.installDiscardTmp(INST.prep.tmpPath); } catch {}
+    INST.prep = null;
+  }
 }
 
 function openInstall(t) {
   CURRENT = t;
-  INST = { busy: false, skip: new Set(), states: {}, opts: null, unsub: null };
+  if (INST && INST.prep && INST.prep.tmpPath) {
+    const old = INST.prep.tmpPath;
+    try { window.studio.installDiscardTmp(old); } catch {}
+  }
+  INST_GEN++;
+  INST = { busy: false, preparing: false, skip: new Set(), states: {}, opts: null, unsub: null, prep: null, lastExtra: null, values: {}, gen: INST_GEN };
   $('#instTitle').textContent = 'Template installieren';
   $('#instTemplate').textContent = `${t.name} · v${t.version || '?'} · ${t.type || '?'}`;
   $('#repoInput').value = (t.id + '-website').toLowerCase().replace(/[^a-z0-9-]+/g, '-').slice(0, 60);
@@ -453,7 +511,7 @@ async function useZipOnly() {
 }
 
 async function instStart() {
-  if (INST.busy) return;
+  if (INST.busy || INST.preparing) return;
   const repoName = $('#repoInput').value.trim();
   if (!/^[a-z0-9._-]{1,60}$/.test(repoName)) {
     toast('Ungültiger Repository-Name – nur Kleinbuchstaben, Zahlen, . _ - (max. 60 Zeichen).', 6000);
@@ -467,7 +525,52 @@ async function instStart() {
   $('#instStartBtn').disabled = false;
   const targetDir = $('#targetInput').value.trim() || CFG.workspace;
   INST.opts = { targetDir, createRepo: $('#optRepo').checked, pages: $('#optPages').checked, readme: $('#optReadme').checked, repoName };
+  // Template vorbereiten (Download + config-Schema) – erst danach ggf. Formular
+  INST.preparing = true;
+  const startBtn = $('#instStartBtn');
+  startBtn.disabled = true;
+  startBtn.innerHTML = '<i data-lucide="loader" class="spin"></i>Vorbereiten …';
+  icons();
+  let prep;
+  try {
+    prep = await window.studio.installPrepare(CURRENT);
+  } catch (e) {
+    prep = { ok: false, error: e.message };
+  }
+  INST.preparing = false;
+  startBtn.disabled = false;
+  startBtn.innerHTML = '<i data-lucide="check"></i>Installation starten';
+  icons();
+  if (!prep || !prep.ok) {
+    toast('Vorbereitung fehlgeschlagen: ' + ((prep && prep.error) || 'unbekannt') + (prep && prep.next ? ' – ' + prep.next : ''), 7000);
+    return;
+  }
+  INST.prep = prep;
+  if (prep.schema && prep.schema.length) {
+    INST.values = { ...(prep.defaults || {}) };
+    renderConfigFields($('#instFields'), prep.schema, INST.values);
+    $('#instFieldsError').classList.add('hidden');
+    instStage('Fields');
+    return;
+  }
   // Kontext-Prereqs
+  if (INST.opts.createRepo && !GH.connected) { instStage('Auth'); paintSecret(); return; }
+  if (needsNodeGuess(CURRENT) && !NODE.ok) { instStage('Node'); return; }
+  runInstall();
+}
+
+function instFieldsNext() {
+  if (!INST || INST.busy) return;
+  const vals = readConfigFields($('#instFields'), INST.prep.schema);
+  const bad = validateFields(INST.prep.schema, vals);
+  const err = $('#instFieldsError');
+  if (bad.length) {
+    err.textContent = bad.join(' · ');
+    err.classList.remove('hidden');
+    return;
+  }
+  err.classList.add('hidden');
+  INST.values = { ...(INST.prep.defaults || {}), ...vals };
   if (INST.opts.createRepo && !GH.connected) { instStage('Auth'); paintSecret(); return; }
   if (needsNodeGuess(CURRENT) && !NODE.ok) { instStage('Node'); return; }
   runInstall();
@@ -506,7 +609,12 @@ async function runInstall() {
     INST.states[p.step] = p.status;
     renderInstSteps(INST.states);
   });
-  const r = await window.studio.workflowInstall(CURRENT, INST.opts.repoName, INST.opts);
+  const extra = INST.prep && INST.prep.tmpPath
+    ? { tmpPath: INST.prep.tmpPath, values: INST.values || {}, schema: INST.prep.schema || [] }
+    : (INST.lastExtra || {});
+  INST.prep = null; // tmp-Verzeichnis gehört ab hier dem Main-Prozess
+  INST.lastExtra = extra;
+  const r = await window.studio.workflowInstall(CURRENT, INST.opts.repoName, INST.opts, extra);
   if (INST.unsub) { INST.unsub(); INST.unsub = null; }
   INST.busy = false;
   showInstallResult(r);
@@ -558,11 +666,245 @@ function showInstallResult(r) {
 }
 
 async function instCancel() {
-  if (!INST.busy) { closeOverlay('installDialog'); return; }
+  if (!INST.busy) { closeInstall(); return; }
   $('#instCancelBtn').disabled = true;
   await window.studio.installCancel();
 }
 
+async function closeInstall() {
+  const gen = INST ? INST.gen : -1;
+  if (INST && INST.busy) return;
+  await cleanupPrep();
+  // Nur schließen, wenn sich seitdem kein neuer Dialog geöffnet hat (Race-Schutz)
+  if (INST && INST.gen === gen) closeOverlay('installDialog');
+}
+
+// ---------- Project-Settings (eigene View unter „Installiert“) ----------
+let SET = null; // { entry, meta, schema, values, busy }
+
+async function openSettings(entry) {
+  SET = { entry: { ...entry }, meta: null, schema: [], values: {}, busy: false };
+  setView('settings');
+  $('#settingsContent').innerHTML = `
+    <div class="back-row"><button class="btn ghost sm" id="setBack"><i data-lucide="chevron-left"></i>Zurück zu Installiert</button></div>
+    <div class="tpl-hero">
+      <div class="tpl-icon"><i data-lucide="settings"></i></div>
+      <div class="tpl-title"><h2>${esc(entry.repoName)}</h2><p class="sub">${esc(entry.templateName || '')} · <span class="path">${esc(entry.localPath || '')}</span></p></div>
+    </div>
+    <div id="setBody"><div class="state"><i data-lucide="loader" class="spin"></i><b>Lädt Einstellungen …</b></div></div>`;
+  icons();
+  $('#setBack').addEventListener('click', () => setView('installed'));
+  // Meta + frisches Schema laden
+  let meta = null;
+  try {
+    const r = await window.studio.projectMeta(entry.localPath);
+    if (r.ok) meta = r.meta;
+  } catch {}
+  if (!SET || SET.entry.localPath !== entry.localPath) return;
+  SET.meta = meta || {};
+  SET.values = { ...((meta && meta.config) || {}) };
+  let schema = Array.isArray(meta && meta.configSchema) ? meta.configSchema : [];
+  const tpl = (entry.templateId && TEMPLATES.find((x) => x.id === entry.templateId)) || null;
+  if (tpl) {
+    try {
+      const r = await window.studio.templateConfig(tpl);
+      if (!SET || SET.entry.localPath !== entry.localPath) return;
+      if (r.ok && Array.isArray(r.schema) && r.schema.length) schema = r.schema;
+    } catch {}
+  }
+  SET.schema = schema;
+  renderSettings();
+}
+
+function renderSettings() {
+  const { entry, meta, schema, values } = SET;
+  const desc = (meta && meta.description) || '';
+  const hasSchema = schema.length > 0;
+  $('#settingsContent').innerHTML = `
+    <div class="back-row"><button class="btn ghost sm" id="setBack"><i data-lucide="chevron-left"></i>Zurück zu Installiert</button></div>
+    <div class="tpl-hero">
+      <div class="tpl-icon"><i data-lucide="settings"></i></div>
+      <div class="tpl-title"><h2>${esc(entry.repoName)}</h2><p class="sub">${esc(entry.templateName || '')} · <span class="path">${esc(entry.localPath || '')}</span>${meta && meta.templateVersion ? ` · Template v${esc(meta.templateVersion)}` : ''}</p></div>
+    </div>
+    <div class="set-section">
+      <h3>Beschreibung</h3>
+      <p class="sub small">Wird in README, <code>meta.json</code> und (falls vorhanden) als GitHub-Repo-Beschreibung gespeichert. Beim Speichern wird automatisch committet und – falls möglich – gepusht.</p>
+      <textarea id="setDesc" rows="3" maxlength="350" placeholder="Kurze Projektbeschreibung …">${esc(desc)}</textarea>
+      <div class="row"><div class="spacer"></div><button id="setDescSave" class="btn primary sm"><i data-lucide="check"></i>Save</button></div>
+      <p id="setDescState" class="sub small"></p>
+    </div>
+    <div class="set-section">
+      <h3>Konfiguration &amp; Migration</h3>
+      ${hasSchema ? `<p class="sub small">Werte für <code>{platzhalter}</code> ändern oder auf eine neue Template-Version migrieren. Wendet das <b>aktuelle</b> Template aus dem Repo frisch an – Template-Dateien werden überschrieben (<code>meta/</code>, <code>.git</code>, <code>node_modules</code> bleiben). Danach Commit + Push.</p>
+      <div id="setFields"></div>
+      <p id="setFieldsError" class="error-text hidden" role="alert"></p>
+      <div class="row"><div class="spacer"></div><button id="setApply" class="btn primary sm"><i data-lucide="refresh-cw"></i>Anwenden &amp; Migrieren</button></div>`
+        : `<div class="hint-box">Keine Konfiguration verfügbar – ${entry.templateId ? 'das Template stellt kein config-Schema bereit.' : 'alte Installation ohne Template-Verknüpfung.'}</div>`}
+    </div>
+    <div class="set-section danger">
+      <h3><i data-lucide="triangle-alert"></i>Danger Zone</h3>
+      <div class="danger-item">
+        <div><b>Vom Gerät entfernen</b><p class="sub small">Löscht nur den lokalen Ordner. Das GitHub-Repo bleibt erhalten.</p></div>
+        <button id="dzLocal" class="btn ghost sm">Lokal löschen</button>
+      </div>
+      <div class="danger-item">
+        <div><b>Von GitHub löschen</b><p class="sub small">Löscht nur das GitHub-Repo. Lokale Dateien bleiben. Braucht <code>delete_repo</code>-Scope (ggf. neu anmelden).</p></div>
+        <div class="dz-confirm"><input id="dzRemoteName" placeholder="${esc(entry.repoName)} eintippen" aria-label="Repo-Name zur Bestätigung" /><button id="dzRemote" class="btn ghost sm" disabled>Von GitHub löschen</button></div>
+      </div>
+      <div class="danger-item">
+        <div><b>Ganz löschen</b><p class="sub small">Löscht GitHub-Repo UND lokale Dateien. Nicht umkehrbar.</p></div>
+        <div class="dz-confirm"><input id="dzAllName" placeholder="${esc(entry.repoName)} eintippen" aria-label="Repo-Name zur Bestätigung" /><button id="dzAll" class="btn ghost sm" disabled>Alles löschen</button></div>
+      </div>
+      <p id="dzState" class="sub small"></p>
+    </div>`;
+  icons();
+  $('#setBack').addEventListener('click', () => setView('installed'));
+  if (hasSchema) renderConfigFields($('#setFields'), schema, values);
+  $('#setDescSave').addEventListener('click', setSaveDescription);
+  const apply = $('#setApply');
+  if (apply) apply.addEventListener('click', () => setApplyConfig(apply));
+  $('#dzLocal').addEventListener('click', dzLocal);
+  const rn = $('#dzRemoteName');
+  if (rn) rn.addEventListener('input', () => { $('#dzRemote').disabled = rn.value.trim() !== entry.repoName; });
+  $('#dzRemote').addEventListener('click', dzRemote);
+  const an = $('#dzAllName');
+  if (an) an.addEventListener('input', () => { $('#dzAll').disabled = an.value.trim() !== entry.repoName; });
+  $('#dzAll').addEventListener('click', dzAll);
+}
+
+function setBusy(b) {
+  if (SET) SET.busy = b;
+  $$('#settingsContent button').forEach((x) => { if (x.id !== 'setBack') x.disabled = b; });
+}
+
+async function setSaveDescription() {
+  if (SET.busy) return;
+  const desc = $('#setDesc').value.trim();
+  if (!desc) { toast('Bitte Beschreibung eingeben.'); return; }
+  setBusy(true);
+  $('#setDescState').textContent = 'Speichert …';
+  try {
+    const r = await window.studio.projectSetDescription({ localPath: SET.entry.localPath, description: desc, repoUrl: SET.entry.repoUrl, repoName: SET.entry.repoName });
+    if (r.ok) {
+      SET.meta = { ...(SET.meta || {}), description: desc };
+      $('#setDescState').textContent = `Gespeichert${r.committed ? ' + committet' : ' (nichts zu committen)'}${r.pushed ? ' + gepusht' : ''}${r.repoUpdated ? ' + GitHub-Beschreibung aktualisiert' : ''}.`;
+      toast('Beschreibung gespeichert.');
+    } else {
+      $('#setDescState').textContent = 'Fehler: ' + r.error;
+      toast('Speichern fehlgeschlagen: ' + r.error, 6000);
+    }
+  } catch (e) {
+    $('#setDescState').textContent = 'Fehler: ' + e.message;
+  }
+  setBusy(false);
+}
+
+async function setApplyConfig(btn) {
+  if (SET.busy) return;
+  const vals = readConfigFields($('#setFields'), SET.schema);
+  const bad = validateFields(SET.schema, vals);
+  const err = $('#setFieldsError');
+  if (bad.length) { err.textContent = bad.join(' · '); err.classList.remove('hidden'); return; }
+  err.classList.add('hidden');
+  const b = btn || $('#setApply');
+  if (!b.dataset.armed) {
+    b.dataset.armed = '1';
+    b.innerHTML = '<i data-lucide="triangle-alert"></i>Wirklich anwenden? Template-Dateien werden überschrieben.';
+    icons();
+    setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.innerHTML = '<i data-lucide="refresh-cw"></i>Anwenden &amp; Migrieren'; icons(); } }, 6000);
+    return;
+  }
+  delete b.dataset.armed;
+  setBusy(true);
+  toast('Migriere Konfiguration …');
+  try {
+    const tpl = SET.entry.templateId ? TEMPLATES.find((x) => x.id === SET.entry.templateId) : null;
+    if (!tpl) { toast('Template-Referenz fehlt – Migration nicht möglich.', 6000); setBusy(false); return; }
+    const r = await window.studio.projectApplyConfig({ localPath: SET.entry.localPath, template: tpl, values: vals });
+    if (r.ok) {
+      SET.values = vals;
+      toast(`Angewendet${r.version ? ' (Template v' + r.version + ')' : ''}${r.committed ? ' + committet' : ''}${r.pushed ? ' + gepusht' : ''}.`);
+      const m = await window.studio.projectMeta(SET.entry.localPath);
+      if (m.ok) SET.meta = m.meta || SET.meta;
+    } else {
+      toast('Migration fehlgeschlagen: ' + r.error + (r.next ? ' – ' + r.next : ''), 7000);
+    }
+  } catch (e) {
+    toast('Fehler: ' + e.message, 6000);
+  }
+  setBusy(false);
+  renderSettings();
+}
+
+function dzSay(msg) { const el = $('#dzState'); if (el) el.textContent = msg; }
+
+async function dzLocal() {
+  const b = $('#dzLocal');
+  if (SET.busy) return;
+  if (!b.dataset.armed) {
+    b.dataset.armed = '1';
+    b.textContent = 'Wirklich lokal löschen?';
+    setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = 'Lokal löschen'; } }, 6000);
+    return;
+  }
+  setBusy(true);
+  dzSay('Löscht …');
+  try {
+    const r = await window.studio.projectUninstallLocal(SET.entry.localPath);
+    if (r.ok) {
+      store.remove(SET.entry.localPath);
+      toast('Lokal gelöscht (GitHub-Repo bleibt).');
+      setView('installed');
+    } else {
+      dzSay('Fehler: ' + r.error + (r.next ? ' – ' + r.next : ''));
+    }
+  } catch (e) { dzSay('Fehler: ' + e.message); }
+  setBusy(false);
+}
+
+function parseRepoEntry() {
+  const m = String(SET.entry.repoUrl || '').match(/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
+  return m ? { owner: m[1], repo: m[2] } : null;
+}
+
+async function dzRemote() {
+  if (SET.busy) return;
+  const or = parseRepoEntry();
+  if (!or) { dzSay('Kein GitHub-Repo verknüpft (nur lokal installiert).'); return; }
+  setBusy(true);
+  dzSay('Löscht GitHub-Repo …');
+  try {
+    const r = await window.studio.projectDeleteRemote(or);
+    if (r.ok) {
+      SET.entry.repoUrl = null;
+      SET.entry.pagesUrl = null;
+      dzSay('GitHub-Repo gelöscht. Lokale Dateien bleiben.');
+      toast('GitHub-Repo gelöscht.');
+    } else {
+      dzSay('Fehler: ' + r.error + (r.next ? ' – ' + r.next : ''));
+    }
+  } catch (e) { dzSay('Fehler: ' + e.message); }
+  setBusy(false);
+}
+
+async function dzAll() {
+  if (SET.busy) return;
+  const or = parseRepoEntry();
+  setBusy(true);
+  dzSay('Löscht alles …');
+  try {
+    if (or) {
+      const r = await window.studio.projectDeleteRemote(or);
+      if (!r.ok) { dzSay('Abbruch – Remote-Fehler: ' + r.error + (r.next ? ' – ' + r.next : '')); setBusy(false); return; }
+    }
+    const l = await window.studio.projectUninstallLocal(SET.entry.localPath);
+    if (!l.ok) { dzSay('Remote gelöscht, lokal fehlgeschlagen: ' + l.error); setBusy(false); return; }
+    store.remove(SET.entry.localPath);
+    toast('Projekt ganz gelöscht.');
+    setView('installed');
+  } catch (e) { dzSay('Fehler: ' + e.message); }
+  setBusy(false);
+}
 // ---------- Node-Setup ----------
 const SETUP_STEPS = [
   ['check', 'Vorhandene Installation prüfen'], ['version', 'LTS-Version ermitteln'],
@@ -674,13 +1016,13 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => {
     const id = b.dataset.close;
     if (id === 'pvModal') closePv();
-    else if (id === 'installDialog') { if (!INST || !INST.busy) closeOverlay(id); }
+    else if (id === 'installDialog') closeInstall();
     else closeOverlay(id);
   }));
   document.querySelectorAll('.overlay').forEach((o) => o.addEventListener('click', (e) => {
     if (e.target !== o) return;
     if (o.id === 'pvModal') closePv();
-    else if (o.id === 'installDialog') { if (!INST || !INST.busy) closeOverlay(o.id); }
+    else if (o.id === 'installDialog') closeInstall();
     else if (o.id === 'setupOverlay') closeSetup();
     else closeOverlay(o.id);
   }));
@@ -700,8 +1042,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key !== 'Escape') return;
     if (!$('#pvModal').classList.contains('hidden')) closePv();
     else if (!$('#accountDialog').classList.contains('hidden')) closeOverlay('accountDialog');
-    else if (!$('#installDialog').classList.contains('hidden')) { if (!INST || !INST.busy) closeOverlay('installDialog'); }
+    else if (!$('#installDialog').classList.contains('hidden')) closeInstall();
     else if (!$('#setupOverlay').classList.contains('hidden')) closeSetup();
+    else if (VIEW === 'settings') setView('installed');
     else if (VIEW === 'detail') leaveDetailView('market');
   });
 
@@ -742,7 +1085,9 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#instNodeBtn').addEventListener('click', () => { openSetup(false); });
   $('#instCancelBtn').addEventListener('click', instCancel);
   $('#instRetryBtn').addEventListener('click', () => { runInstall(); });
-  $('#instDoneBtn').addEventListener('click', () => closeOverlay('installDialog'));
+  $('#instDoneBtn').addEventListener('click', () => closeInstall());
+  $('#instFieldsNext').addEventListener('click', instFieldsNext);
+  $('#instFieldsBack').addEventListener('click', () => instStage('Config'));
 
   // Konto
   $('#accOauthBtn').addEventListener('click', async () => {

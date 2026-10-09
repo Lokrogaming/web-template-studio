@@ -13,7 +13,9 @@ const APP_NAME = 'SiteSmith';
 // OAuth-App (Developer settings → OAuth Apps): Callback-URL http://127.0.0.1/callback eintragen.
 // Nach dem Erstellen die Client-ID hier eintragen – kein Secret nötig (PKCE + Loopback).
 const GITHUB_OAUTH_CLIENT_ID = 'Ov23li6XnkMTSHbBLDMt';
-const GITHUB_OAUTH_SCOPES = 'repo workflow read:user';
+const GITHUB_OAUTH_SCOPES = 'repo workflow read:user delete_repo';
+// Hinweis: delete_repo (für „Von GitHub löschen“) gilt nur für NEUE Logins –
+// bestehende Tokens müssen einmal ab- und wieder angemeldet werden.
 const MAPPING_URL = `https://raw.githubusercontent.com/${TEMPLATE_REPO}/${TEMPLATE_BRANCH}/templates.json`;
 const ZIP_BASE_URL = `https://raw.githubusercontent.com/${TEMPLATE_REPO}/${TEMPLATE_BRANCH}/templates/`;
 const RAW_BASE_URL = `https://raw.githubusercontent.com/${TEMPLATE_REPO}/${TEMPLATE_BRANCH}/`;
@@ -588,8 +590,133 @@ ipcMain.handle('download-zip', async (_e, template) => {
   }
 });
 
+// ---------- Template-Konfiguration (Platzhalter wie {site.name}) ----------
+// Schema in .temp-config: "config": [{ id, name, type, required, default, options? }]
+// Typen: text, textarea, email, url, number, boolean, color, select
+const TEXT_EXTS = new Set(['.html', '.css', '.js', '.jsx', '.ts', '.tsx', '.json', '.md', '.txt', '.xml', '.svg', '.yml', '.yaml', '.toml', '.ini', '.cfg']);
+const SKIP_DIRS = new Set(['.git', 'node_modules', 'meta']);
+
+function validateConfig(schema, values) {
+  const missing = [];
+  for (const f of Array.isArray(schema) ? schema : []) {
+    if (!f || !f.id) continue;
+    const v = values ? values[f.id] : undefined;
+    if (f.required && (v === undefined || v === null || String(v).trim() === '')) {
+      missing.push(f.name || f.id);
+      continue;
+    }
+    if (v !== undefined && v !== null && String(v).trim() !== '') {
+      const s = String(v).trim();
+      if (f.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s)) missing.push((f.name || f.id) + ' (keine gültige E-Mail)');
+      if (f.type === 'url' && !/^https?:\/\/.+\..+/.test(s)) missing.push((f.name || f.id) + ' (keine gültige URL)');
+      if (f.type === 'number' && s !== '' && Number.isNaN(Number(s))) missing.push((f.name || f.id) + ' (keine Zahl)');
+    }
+  }
+  return { ok: missing.length === 0, missing };
+}
+
+// Ersetzt {id}-Platzhalter in einem Text; gibt {text, count} zurück
+function applyPlaceholders(text, values) {
+  let out = String(text);
+  let count = 0;
+  for (const id of Object.keys(values || {})) {
+    if (!id || /[{}]/.test(id)) continue;
+    const needle = '{' + id + '}';
+    if (!out.includes(needle)) continue;
+    const val = values[id] === true ? 'true' : values[id] === false ? 'false' : String(values[id] ?? '');
+    out = out.split(needle).join(val);
+    count++;
+  }
+  return { text: out, count };
+}
+
+function applyPlaceholdersToDir(rootDir, values) {
+  const ids = Object.keys(values || {});
+  if (!ids.length) return { files: 0, replaced: 0 };
+  let files = 0;
+  let replaced = 0;
+  const walk = (dir) => {
+    for (const name of fs.readdirSync(dir)) {
+      if (SKIP_DIRS.has(name)) continue;
+      const p = path.join(dir, name);
+      const st = fs.statSync(p);
+      if (st.isDirectory()) { walk(p); continue; }
+      if (!TEXT_EXTS.has(path.extname(name).toLowerCase())) continue;
+      let src;
+      try { src = fs.readFileSync(p, 'utf8'); } catch { continue; }
+      const r = applyPlaceholders(src, values);
+      if (r.text !== src) {
+        fs.writeFileSync(p, r.text, 'utf8');
+        files++;
+        replaced += r.count;
+      }
+    }
+  };
+  walk(rootDir);
+  return { files, replaced };
+}
+
+function readTempConfig(dir) {
+  try {
+    const f = path.join(dir, '.temp-config');
+    if (!fs.existsSync(f)) return null;
+    return JSON.parse(fs.readFileSync(f, 'utf8'));
+  } catch { return null; }
+}
+
+// Fehlende Werte mit Schema-Defaults auffüllen, damit keine {platzhalter} übrig bleiben
+function withDefaults(schema, values) {
+  const out = { ...(values || {}) };
+  for (const f of Array.isArray(schema) ? schema : []) {
+    if (!f || !f.id) continue;
+    if ((out[f.id] === undefined || out[f.id] === null || String(out[f.id]).trim() === '') && f.default !== undefined) {
+      out[f.id] = String(f.default);
+    }
+  }
+  return out;
+}
+
+function discardTmpDir(p) {
+  try {
+    if (!p) return;
+    const norm = path.normalize(String(p));
+    const tmp = path.normalize(os.tmpdir());
+    if (!norm.startsWith(tmp)) return; // Sicherheit: nur unter tmpdir löschen
+    fs.rmSync(norm, { recursive: true, force: true });
+  } catch {}
+}
+
 const installCtl = { active: false, cancel: false };
 ipcMain.handle('install-cancel', async () => { installCtl.cancel = true; return { ok: true }; });
+
+// Lädt ein Template nach tmp, liest .temp-config (inkl. config-Schema) – ohne Seiteneffekte.
+// Der Dialog zeigt danach ggf. das Konfigurations-Formular, finalize() baut daraus das Projekt.
+ipcMain.handle('install-prepare', async (_e, template) => {
+  if (!template || !template.zip || !template.id) return { ok: false, error: 'Ungültiges Template.', next: 'Wähle ein anderes Template aus der Übersicht.' };
+  const stamp = Date.now();
+  const tmpZip = path.join(os.tmpdir(), 'sitesmith-prep-' + stamp + '-' + template.zip);
+  const tmpDir = path.join(os.tmpdir(), 'sitesmith-prep-' + stamp + '-' + template.id);
+  try {
+    await downloadToFile(ZIP_BASE_URL + template.zip, tmpZip);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    new AdmZip(tmpZip).extractAllTo(tmpDir, true);
+    try { fs.unlinkSync(tmpZip); } catch {}
+    const cfg = readTempConfig(tmpDir) || {};
+    const schema = Array.isArray(cfg.config) ? cfg.config.filter((f) => f && f.id) : [];
+    const defaults = {};
+    for (const f of schema) {
+      if (f.default !== undefined) defaults[f.id] = String(f.default);
+      else if (f.type === 'boolean') defaults[f.id] = 'false';
+      else defaults[f.id] = '';
+    }
+    return { ok: true, tmpPath: tmpDir, schema, defaults, hasPackageJson: fs.existsSync(path.join(tmpDir, 'package.json')), tempConfig: { name: cfg.name || template.name, version: cfg.version || template.version, type: cfg.type || template.type } };
+  } catch (err) {
+    discardTmpDir(tmpZip); discardTmpDir(tmpDir);
+    return { ok: false, error: 'Vorbereitung fehlgeschlagen: ' + err.message, next: 'Internetverbindung prüfen und erneut versuchen.' };
+  }
+});
+
+ipcMain.handle('install-discard-tmp', async (_e, tmpPath) => { discardTmpDir(tmpPath); return { ok: true }; });
 
 ipcMain.handle('pick-folder', async (e, defPath) => {
   const win = BrowserWindow.fromWebContents(e.sender);
@@ -601,7 +728,7 @@ ipcMain.handle('pick-folder', async (e, defPath) => {
   return { ok: true, path: r.filePaths[0] };
 });
 
-ipcMain.handle('workflow-install', async (e, template, repoName, options = {}) => {
+ipcMain.handle('workflow-install', async (e, template, repoName, options = {}, extra = {}) => {
   if (installCtl.active) return { ok: false, error: 'Es läuft bereits eine Installation.', next: 'Warte bis sie fertig ist oder brich sie ab.' };
   installCtl.active = true;
   installCtl.cancel = false;
@@ -613,6 +740,7 @@ ipcMain.handle('workflow-install', async (e, template, repoName, options = {}) =
   const log = (m) => { logs.push(m); send('log', 'info', m); };
   const cancelled = () => installCtl.cancel;
   const finish = (r) => { installCtl.active = false; return r; };
+  let ex = {};
   const runStep = async (id, fn) => {
     if (cancelled()) throw { cancelled: true };
     send(id, 'running');
@@ -638,6 +766,16 @@ ipcMain.handle('workflow-install', async (e, template, repoName, options = {}) =
       return finish({ ok: false, error: 'Zielordner existiert bereits: ' + target, next: 'Anderen Repository-Namen wählen oder den Ordner vorher löschen/umbenennen.' });
     }
 
+    // Werte aus dem Konfigurations-Formular (install-prepare) prüfen
+    ex = extra || {};
+    const schema = Array.isArray(ex.schema) ? ex.schema : [];
+    const values = withDefaults(schema, ex.values && typeof ex.values === 'object' ? ex.values : {});
+    if (Object.keys(values).length || schema.length) {
+      const chk = validateConfig(schema, values);
+      if (!chk.ok) return finish({ ok: false, error: 'Konfiguration unvollständig: ' + chk.missing.join(', '), next: 'Pflichtfelder ausfüllen und erneut starten.' });
+    }
+    const useTmp = ex.tmpPath && fs.existsSync(ex.tmpPath);
+
     let token = null;
     let owner = null;
     if (opts.createRepo) {
@@ -651,21 +789,35 @@ ipcMain.handle('workflow-install', async (e, template, repoName, options = {}) =
       log('Angemeldet als ' + owner);
     }
 
-    await runStep('download', async () => {
-      const url = ZIP_BASE_URL + template.zip;
-      const tmpZip = path.join(os.tmpdir(), 'sitesmith-' + Date.now() + '-' + template.zip);
-      log('Lade ' + template.zip + ' …');
-      await downloadToFile(url, tmpZip);
-      log('Download OK');
-      return tmpZip;
-    }).then((zip) => { installCtl._zip = zip; });
+    if (useTmp) {
+      send('download', 'skip');
+      log('Nutze vorbereitetes Template (Konfiguration bereits geladen)');
+    } else {
+      await runStep('download', async () => {
+        const url = ZIP_BASE_URL + template.zip;
+        const tmpZip = path.join(os.tmpdir(), 'sitesmith-' + Date.now() + '-' + template.zip);
+        log('Lade ' + template.zip + ' …');
+        await downloadToFile(url, tmpZip);
+        log('Download OK');
+        return tmpZip;
+      }).then((zip) => { installCtl._zip = zip; });
+    }
     if (cancelled()) throw { cancelled: true };
 
     await runStep('extract', async () => {
       fs.mkdirSync(target, { recursive: true });
-      new AdmZip(installCtl._zip).extractAllTo(target, true);
-      try { fs.unlinkSync(installCtl._zip); } catch {}
+      if (useTmp) {
+        fs.cpSync(ex.tmpPath, target, { recursive: true, filter: (src) => !/(^|[\\/])(\.git|node_modules)([\\/]|$)/.test(src) });
+        discardTmpDir(ex.tmpPath);
+      } else {
+        new AdmZip(installCtl._zip).extractAllTo(target, true);
+        try { fs.unlinkSync(installCtl._zip); } catch {}
+      }
       log('Entpackt nach ' + target);
+      if (Object.keys(values).length) {
+        const n = applyPlaceholdersToDir(target, values);
+        log(`Platzhalter ersetzt in ${n.files} Datei(en)`);
+      }
       const cfgPath = path.join(target, '.temp-config');
       if (fs.existsSync(cfgPath)) {
         try {
@@ -678,7 +830,13 @@ ipcMain.handle('workflow-install', async (e, template, repoName, options = {}) =
 
     // meta/-Ordner mit Projekt-UUID anlegen (wird mit committet)
     await runStep('meta', async () => {
-      ensureProjectMeta(target, template);
+      const m = ensureProjectMeta(target, template);
+      if (Object.keys(values).length || schema.length) {
+        m.config = values;
+        m.configSchema = schema;
+        fs.writeFileSync(metaJsonPath(target), JSON.stringify(m, null, 2), 'utf8');
+        log('Konfiguration in meta/ gespeichert');
+      }
       log('meta/ mit Projekt-UUID angelegt');
     });
     if (cancelled()) throw { cancelled: true };
@@ -832,6 +990,7 @@ _Template: ${template.name} · Author: ${template.author || '?'} · Stand: ${tem
 
     return finish({ ok: true, logs, localPath: target, repoUrl, pagesUrl });
   } catch (err) {
+    if (ex && ex.tmpPath) discardTmpDir(ex.tmpPath);
     if (err && err.cancelled) return finish({ ok: false, cancelled: true, logs, error: 'Installation abgebrochen.' });
     return finish({ ok: false, logs, error: (err && err.message) || 'Unbekannter Fehler.' });
   }
@@ -1022,8 +1181,168 @@ ipcMain.handle('preview-stop', async (_e, port) => {
   return { ok: true };
 });
 
+// ---------- Project-Settings (Installiert-Ansicht) ----------
+function parseOwnerRepo(repoUrl) {
+  const m = String(repoUrl || '').match(/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
+  return m ? { owner: m[1], repo: m[2] } : null;
+}
+async function gitHasOrigin(cwd) {
+  const r = await execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd });
+  return !r.error;
+}
+async function gitCommitPush(cwd, msg) {
+  await execFileAsync('git', ['add', '-A'], { cwd });
+  const st = await execFileAsync('git', ['status', '--porcelain'], { cwd });
+  let committed = false;
+  if (st.stdout.trim()) {
+    const c = await execFileAsync('git', ['commit', '-m', msg], { cwd });
+    committed = !c.error;
+    if (!committed) throw new Error('Commit fehlgeschlagen.');
+  }
+  let pushed = false;
+  if (await gitHasOrigin(cwd)) {
+    if (!committed) return { committed, pushed };
+    const p = await execFileAsync('git', ['push'], { cwd, timeout: 60000 });
+    if (p.error) throw new Error('Push fehlgeschlagen – lokal ist alles gespeichert. Internet/Token prüfen und später erneut pushen.');
+    pushed = true;
+  }
+  return { committed, pushed };
+}
+function updateReadmeDescription(readmePath, fallbackTitle, description) {
+  let lines = fs.existsSync(readmePath) ? fs.readFileSync(readmePath, 'utf8').split('\n') : [];
+  const h1 = lines.findIndex((l) => l.startsWith('# '));
+  if (h1 === -1) {
+    lines = [`# ${fallbackTitle}`, '', `> ${description}`, ...lines];
+  } else if (lines[h1 + 1] !== undefined && lines[h1 + 1].startsWith('> ')) {
+    lines[h1 + 1] = `> ${description}`;
+  } else {
+    lines.splice(h1 + 1, 0, '', `> ${description}`);
+  }
+  fs.writeFileSync(readmePath, lines.join('\n'), 'utf8');
+}
+
+ipcMain.handle('project-meta', async (_e, localPath) => {
+  if (!localPath || !fs.existsSync(localPath)) return { ok: false, error: 'Ordner nicht gefunden.' };
+  return { ok: true, meta: readProjectMeta(localPath) };
+});
+
+// Frisches config-Schema direkt aus dem Template-Zip (für Settings/Migration)
+ipcMain.handle('template-config', async (_e, template) => {
+  if (!template || !template.zip) return { ok: false, error: 'Ungültiges Template.' };
+  const stamp = Date.now();
+  const tmpZip = path.join(os.tmpdir(), 'sitesmith-cfg-' + stamp + '.zip');
+  const tmpDir = path.join(os.tmpdir(), 'sitesmith-cfg-' + stamp);
+  try {
+    await downloadToFile(ZIP_BASE_URL + template.zip, tmpZip);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    new AdmZip(tmpZip).extractAllTo(tmpDir, true);
+    const cfg = readTempConfig(tmpDir) || {};
+    return { ok: true, schema: Array.isArray(cfg.config) ? cfg.config.filter((f) => f && f.id) : [], version: cfg.version || template.version || null };
+  } catch (err) {
+    return { ok: false, error: 'Schema konnte nicht geladen werden: ' + err.message, next: 'Internetverbindung prüfen und erneut versuchen.' };
+  } finally {
+    discardTmpDir(tmpZip); discardTmpDir(tmpDir);
+  }
+});
+
+ipcMain.handle('project-set-description', async (_e, payload = {}) => {
+  const { localPath, description, repoUrl, repoName } = payload;
+  const desc = String(description || '').trim();
+  if (!localPath || !fs.existsSync(localPath)) return { ok: false, error: 'Ordner nicht gefunden.' };
+  if (!desc) return { ok: false, error: 'Beschreibung ist leer.', next: 'Text eingeben und erneut speichern.' };
+  if (desc.length > 350) return { ok: false, error: 'Beschreibung zu lang (max. 350 Zeichen).' };
+  try {
+    updateReadmeDescription(path.join(localPath, 'README.md'), repoName || path.basename(localPath), desc);
+    try {
+      const meta = ensureProjectMeta(localPath, null);
+      meta.description = desc;
+      fs.writeFileSync(metaJsonPath(localPath), JSON.stringify(meta, null, 2), 'utf8');
+    } catch {}
+    const { committed, pushed } = await gitCommitPush(localPath, 'docs: Beschreibung aktualisiert');
+    let repoUpdated = false;
+    const or = parseOwnerRepo(repoUrl);
+    const token = readToken();
+    if (or && token) {
+      const r = await githubApi(`/repos/${or.owner}/${or.repo}`, token, 'PATCH', { description: desc });
+      repoUpdated = r.status === 200;
+    }
+    return { ok: true, committed, pushed, repoUpdated };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// Konfiguration neu anwenden / auf neue Template-Version migrieren:
+// frisches Zip laden, Werte einsetzen, über Projekt legen (meta/, .git, node_modules bleiben), commit+push.
+ipcMain.handle('project-apply-config', async (_e, payload = {}) => {
+  const { localPath, template, values } = payload;
+  if (!localPath || !fs.existsSync(localPath)) return { ok: false, error: 'Ordner nicht gefunden.' };
+  if (!template || !template.zip) return { ok: false, error: 'Template-Referenz fehlt (alte Installation?).', next: 'Bei alten Installationen ohne Template-Verknüpfung ist keine Migration möglich.' };
+  const stamp = Date.now();
+  const tmpZip = path.join(os.tmpdir(), 'sitesmith-mig-' + stamp + '.zip');
+  const tmpDir = path.join(os.tmpdir(), 'sitesmith-mig-' + stamp);
+  try {
+    await downloadToFile(ZIP_BASE_URL + template.zip, tmpZip);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    new AdmZip(tmpZip).extractAllTo(tmpDir, true);
+    const cfg = readTempConfig(tmpDir) || {};
+    const schema = Array.isArray(cfg.config) ? cfg.config.filter((f) => f && f.id) : [];
+    const vals = withDefaults(schema, (values && typeof values === 'object') ? values : {});
+    const chk = validateConfig(schema, vals);
+    if (!chk.ok) return { ok: false, error: 'Konfiguration unvollständig: ' + chk.missing.join(', '), next: 'Pflichtfelder ausfüllen und erneut anwenden.' };
+    fs.cpSync(tmpDir, localPath, {
+      recursive: true,
+      filter: (src) => !/(^|[\\/])(meta|\.git|node_modules)([\\/]|$)/.test(src),
+    });
+    const n = applyPlaceholdersToDir(localPath, vals);
+    const meta = ensureProjectMeta(localPath, { id: template.id, name: template.name, version: cfg.version || template.version });
+    meta.config = vals;
+    meta.configSchema = schema;
+    meta.migratedAt = new Date().toISOString();
+    if (cfg.version) meta.templateVersion = cfg.version;
+    fs.writeFileSync(metaJsonPath(localPath), JSON.stringify(meta, null, 2), 'utf8');
+    const { committed, pushed } = await gitCommitPush(localPath, `chore: Konfiguration angewendet${cfg.version ? ' (Template v' + cfg.version + ')' : ''}`);
+    return { ok: true, files: n.files, committed, pushed, version: cfg.version || null };
+  } catch (err) {
+    return { ok: false, error: 'Migration fehlgeschlagen: ' + err.message };
+  } finally {
+    discardTmpDir(tmpZip); discardTmpDir(tmpDir);
+  }
+});
+
+ipcMain.handle('project-uninstall-local', async (_e, localPath) => {
+  if (!localPath) return { ok: false, error: 'Kein Pfad.' };
+  const norm = path.normalize(String(localPath));
+  const home = path.normalize(os.homedir());
+  if (norm === home || norm.length <= home.length + 1 || norm === path.parse(norm).root) {
+    return { ok: false, error: 'Dieser Ordner darf nicht gelöscht werden.' };
+  }
+  try {
+    fs.rmSync(norm, { recursive: true, force: true });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: 'Löschen fehlgeschlagen: ' + err.message, next: 'Ordner ggf. in einer anderen App geöffnet? Schließen und erneut versuchen.' };
+  }
+});
+
+ipcMain.handle('project-delete-remote', async (_e, payload = {}) => {
+  const { owner, repo } = payload;
+  if (!owner || !repo) return { ok: false, error: 'Owner/Repo fehlt.' };
+  const token = readToken();
+  if (!token) return { ok: false, error: 'GitHub nicht verknüpft.', next: 'Anmelden und erneut versuchen.' };
+  try {
+    const r = await githubApi(`/repos/${owner}/${repo}`, token, 'DELETE');
+    if (r.status === 204) return { ok: true };
+    if (r.status === 404) return { ok: false, error: 'Repo nicht gefunden (oder kein Zugriff).', next: 'Prüfen, ob das Repo noch existiert und das Token Zugriff hat.' };
+    if (r.status === 403) return { ok: false, error: 'Löschen verweigert (HTTP 403).', next: 'Das Token braucht den Scope „delete_repo“ – einmal ab- und wieder anmelden, dann erneut versuchen.' };
+    return { ok: false, error: 'Löschen fehlgeschlagen (HTTP ' + r.status + ').' };
+  } catch (err) {
+    return { ok: false, error: 'Netzwerkfehler: ' + err.message, next: 'Internetverbindung prüfen und erneut versuchen.' };
+  }
+});
+
 ipcMain.handle('open-folder', async (_e, p) => { await shell.openPath(p); return { ok: true }; });
 ipcMain.handle('open-external', async (_e, url) => { await shell.openExternal(url); return { ok: true }; });
 
 // Für Tests (bleibt in Electron ungenutzt)
-try { if (require.main !== module) module.exports = { checkNode, ensureProjectMeta, readProjectMeta, newUuid }; } catch {}
+try { if (require.main !== module) module.exports = { checkNode, ensureProjectMeta, readProjectMeta, newUuid, applyPlaceholders, validateConfig, withDefaults, applyPlaceholdersToDir }; } catch {}
