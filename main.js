@@ -12,7 +12,7 @@ const TEMPLATE_BRANCH = 'main';
 const APP_NAME = 'SiteSmith';
 // OAuth-App (Developer settings → OAuth Apps): Callback-URL http://127.0.0.1/callback eintragen.
 // Nach dem Erstellen die Client-ID hier eintragen – kein Secret nötig (PKCE + Loopback).
-const GITHUB_OAUTH_CLIENT_ID = '';
+const GITHUB_OAUTH_CLIENT_ID = 'Iv23liauHPpy0m4o9OiA';
 const GITHUB_OAUTH_SCOPES = 'repo workflow read:user';
 const MAPPING_URL = `https://raw.githubusercontent.com/${TEMPLATE_REPO}/${TEMPLATE_BRANCH}/templates.json`;
 const ZIP_BASE_URL = `https://raw.githubusercontent.com/${TEMPLATE_REPO}/${TEMPLATE_BRANCH}/templates/`;
