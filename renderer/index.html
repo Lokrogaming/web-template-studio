@@ -111,6 +111,11 @@
         <div id="oauthBox" class="hidden">
           <button id="oauthBtn" class="btn primary">Im Browser mit GitHub anmelden</button>
           <p id="oauthWait" class="hidden">Warte auf den Browser … <button id="oauthCancel" class="btn ghost sm">Abbrechen</button></p>
+          <details class="small"><summary>Falls GitHub ein Client Secret verlangt …</summary>
+            <div class="row"><input id="oauthSecretInput" type="password" placeholder="Client Secret einfügen" /><button id="oauthSecretSave" class="btn ghost sm">Speichern</button></div>
+            <p id="oauthSecretState" class="small"></p>
+            <p class="small">In den App-Einstellungen auf GitHub unter „Client secrets“ generieren. Wird nur lokal auf deinem PC gespeichert.</p>
+          </details>
         </div>
         <div id="ghLoginBox" class="hidden">
           <p class="small">Alternativ per <b>Personal Access Token</b> (Scopes: <code>repo</code>, <code>workflow</code>):</p>

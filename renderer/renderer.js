@@ -229,6 +229,9 @@ async function refreshGh() {
     $('#ghState').textContent = '✗ Nicht verbunden. ' + (s.hint || '');
     $('#ghLoginBox').classList.remove('hidden');
     $('#oauthBox').classList.toggle('hidden', !(CFG && CFG.oauthConfigured));
+    if (CFG && CFG.oauthConfigured) {
+      $('#oauthSecretState').textContent = CFG.oauthHasSecret ? '✓ Client Secret hinterlegt.' : 'Kein Client Secret hinterlegt.';
+    }
     $('#ghLogout').classList.add('hidden');
   }
   return s;
@@ -340,6 +343,13 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshGh();
   });
   $('#oauthCancel').addEventListener('click', async () => { await window.studio.oauthCancel(); });
+  $('#oauthSecretSave').addEventListener('click', async () => {
+    const v = $('#oauthSecretInput').value.trim();
+    if (!v) return toast('Bitte Secret einfügen.');
+    const r = await window.studio.oauthSaveSecret(v);
+    if (r.ok) { $('#oauthSecretInput').value = ''; $('#oauthSecretState').textContent = '✓ Client Secret hinterlegt.'; toast('Secret lokal gespeichert.'); CFG.oauthHasSecret = true; }
+    else toast('Fehler: ' + r.error, 6000);
+  });
   $('#nodeInstallBtn').addEventListener('click', async () => {
     toast('Installiere Node.js LTS via winget … (kann dauern)');
     const r = await window.studio.nodeInstall();

@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('studio', {
   githubLogout: () => ipcRenderer.invoke('github-logout'),
   oauthStart: () => ipcRenderer.invoke('github-oauth-start'),
   oauthCancel: () => ipcRenderer.invoke('github-oauth-cancel'),
+  oauthSaveSecret: (s) => ipcRenderer.invoke('github-oauth-save-secret', s),
   nodeStatus: () => ipcRenderer.invoke('node-status'),
   nodeInstall: () => ipcRenderer.invoke('node-install'),
   downloadZip: (template) => ipcRenderer.invoke('download-zip', template),

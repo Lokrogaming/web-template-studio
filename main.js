@@ -164,6 +164,7 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 ipcMain.handle('get-config', async () => ({
   appName: APP_NAME,
   oauthConfigured: GITHUB_OAUTH_CLIENT_ID.length > 0,
+  oauthHasSecret: !!readOAuthSecret(),
   templateRepo: TEMPLATE_REPO,
   branch: TEMPLATE_BRANCH,
   mappingUrl: MAPPING_URL,
@@ -221,9 +222,21 @@ function closeOAuthServer() {
 const oauthHtml = (msg) => `<!doctype html><html lang="de"><head><meta charset="utf-8"><title>${APP_NAME}</title></head><body style="background:#09090B;color:#FAFAFA;font-family:system-ui;display:flex;height:100vh;align-items:center;justify-content:center;margin:0"><div style="text-align:center;max-width:420px"><h2>${msg}</h2><p style="color:#A1A1AA">Du kannst dieses Fenster schließen und zu ${APP_NAME} zurückkehren.</p></div></body></html>`;
 const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+function readOAuthSecret() {
+  try {
+    const f = userDataFile('oauth.json');
+    if (!fs.existsSync(f)) return null;
+    const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+    return j.clientSecret || null;
+  } catch { return null; }
+}
+
 function exchangeOAuthCode(code, verifier, redirectUri) {
   return new Promise((resolve) => {
-    const body = JSON.stringify({ client_id: GITHUB_OAUTH_CLIENT_ID, code, redirect_uri: redirectUri, code_verifier: verifier });
+    const bodyObj = { client_id: GITHUB_OAUTH_CLIENT_ID, code, redirect_uri: redirectUri, code_verifier: verifier };
+    const secret = readOAuthSecret();
+    if (secret) bodyObj.client_secret = secret;
+    const body = JSON.stringify(bodyObj);
     const req = https.request({
       hostname: 'github.com', path: '/login/oauth/access_token', method: 'POST',
       headers: { 'User-Agent': 'sitesmith', 'Accept': 'application/json', 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
@@ -233,7 +246,10 @@ function exchangeOAuthCode(code, verifier, redirectUri) {
       res.on('end', async () => {
         try {
           const j = JSON.parse(raw);
-          if (!j.access_token) return resolve({ ok: false, error: j.error_description || j.error || 'Kein Token erhalten.' });
+          if (!j.access_token) {
+            const code = j.error ? '`' + j.error + '` ' : '';
+            return resolve({ ok: false, error: code + (j.error_description || j.error || 'Kein Token erhalten.') });
+          }
           const me = await githubApi('/user', j.access_token);
           resolve({
             ok: true, token: j.access_token,
@@ -320,6 +336,15 @@ ipcMain.handle('github-oauth-cancel', async () => {
   const p = oauthPending;
   closeOAuthServer();
   if (p) p.resolve({ ok: false, error: 'Abgebrochen.' });
+  return { ok: true };
+});
+
+ipcMain.handle('github-oauth-save-secret', async (_e, secret) => {
+  secret = String(secret || '').trim();
+  if (!secret) return { ok: false, error: 'Leeres Secret.' };
+  const f = userDataFile('oauth.json');
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify({ clientSecret: secret, savedAt: new Date().toISOString() }), 'utf8');
   return { ok: true };
 });
 
