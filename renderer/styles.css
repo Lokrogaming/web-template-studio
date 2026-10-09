@@ -1,0 +1,43 @@
+:root{--bg:#0b1020;--card:#151d33;--line:#26314f;--txt:#e6ebf5;--mut:#93a0bb;--acc:#6366f1;--ok:#22c55e}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,Segoe UI,Roboto,Arial}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#0b1020f2;z-index:5}
+.brand{display:flex;gap:12px;align-items:center}.logo{background:var(--acc);font-weight:800;padding:10px 12px;border-radius:12px}
+.brand h1{margin:0;font-size:18px}.brand p{margin:0;color:var(--mut);font-size:12px}
+.top-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+input[type=search],input[type=text],input[type=password],input:not([type]){background:#0e1530;border:1px solid var(--line);color:var(--txt);padding:9px 12px;border-radius:10px;min-width:220px}
+#repoInput,#tokenInput{min-width:260px}
+.btn{border:0;border-radius:10px;padding:10px 16px;cursor:pointer;color:var(--txt);background:#22304f}
+.btn.primary{background:var(--acc);font-weight:700}.btn.primary:hover{background:#4f46e5}
+.btn.muted{background:#2a3350;color:#c3cbdf}.btn.muted:hover{background:#333f63}
+.btn.ghost{background:transparent;border:1px solid var(--line)}
+.btn.big{width:100%;padding:14px;font-size:15px}.btn:disabled{opacity:.5;cursor:not-allowed}
+.rec{background:#22c55e33;border:1px solid #22c55e66;color:#4ade80;border-radius:99px;padding:1px 8px;font-size:12px;font-weight:600}
+.sub{opacity:.7;font-size:12px}
+.pill{border:1px solid var(--line);border-radius:99px;padding:6px 12px;font-size:12px;color:var(--mut)}
+.pill.ok{color:#4ade80;border-color:#22c55e66}.pill.bad{color:#fca5a5;border-color:#ef444466}
+main{padding:20px;max-width:1180px;margin:auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:8px}
+.card h3{margin:0;display:flex;align-items:center;gap:8px}
+.meta{color:var(--mut);font-size:12px;display:flex;gap:8px;flex-wrap:wrap}
+.desc{font-size:14px;color:#c9d2e8;min-height:40px}
+.card .row{display:flex;gap:8px;margin-top:auto}
+.badge-verified{display:inline-flex;align-items:center;gap:4px;background:#22c55e1e;border:1px solid #22c55e55;color:#4ade80;font-size:11px;border-radius:99px;padding:2px 8px}
+.badge-unverified{font-size:11px;color:var(--mut);border:1px solid var(--line);border-radius:99px;padding:2px 8px}
+.overlay{position:fixed;inset:0;background:#000a;display:flex;align-items:flex-start;justify-content:center;padding:32px 16px;z-index:20;overflow:auto}
+.hidden{display:none!important}
+.modal{background:#131b31;border:1px solid var(--line);border-radius:16px;padding:22px;max-width:480px;width:100%}
+.modal.wide{max-width:760px}
+.use-name{color:var(--mut)}.use-btns{display:flex;flex-direction:column;gap:10px;margin:14px 0}
+.close{margin-top:6px}
+.detail-body{display:grid;grid-template-columns:150px 1fr;gap:6px 12px;background:#0e1530;border:1px solid var(--line);border-radius:12px;padding:14px;margin:12px 0;font-size:14px}
+.detail-body dt{color:var(--mut)}.detail-body dd{margin:0}
+.deploy{font-size:14px;color:#c9d2e8}.deploy code{background:#0007;padding:1px 6px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.steps>li{background:#0e1530;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.step-body{margin-top:6px;font-size:14px}.small{font-size:12px;color:var(--mut)}
+.log{background:#0008;border:1px solid var(--line);border-radius:10px;padding:10px;max-height:220px;overflow:auto;font-size:12px;white-space:pre-wrap}
+.status{border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-bottom:12px;background:#131b31}
+.preview-wrap{margin-top:8px}#previewView,#previewFrame{width:100%;height:420px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.hint{color:var(--mut);font-size:13px}
