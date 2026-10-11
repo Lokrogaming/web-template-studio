@@ -15,7 +15,7 @@ Desktop-Marketplace-App (Electron) + Website (GitHub Pages) für Website-Templat
 - **Installiert-Ansicht:** Verlauf der Workflow-Installationen (lokal) mit Ordner-/Repo-/Pages-/Preview-Aktionen.
 - **Preview:** statische Templates direkt, Node-Templates werden automatisch gebaut (`npm install` + `npm run build`, `dist/` wird serviert) – bei Ladefehlern gibt es einen „Im Browser öffnen“-Fallback statt weißer Seite.
 - **Verified:** `verified: true` im Mapping → Icon auf Card + Detailseite.
-- **Website:** `website/` (gespiegelt `docs/` für Pages-Legacy) – nur Infoseite + Installer-Download-Button, **aktuell deaktiviert**, bis die App fertig aufgesetzt ist.
+- **Website:** `website/` (gespiegelt `docs/` für Pages-Legacy) – Tailwind-Infoseite + großer **Download for Windows**-Button (Beta v0.2.0 direkt aus GitHub-Releases).
 
 ## Entwickeln
 

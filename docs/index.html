@@ -1,34 +1,230 @@
 <!doctype html>
-<html lang="de">
+<html lang="de" class="scroll-smooth">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>SiteSmith – Website-Templates per Klick</title>
-<link rel="stylesheet" href="styles.css" />
+<title>SiteSmith – Website-Templates per Klick (Beta-Download)</title>
+<meta name="description" content="SiteSmith ist die Desktop-App für Website-Templates: browsen, per Workflow als GitHub-Repo installieren oder als .zip laden. Jetzt Beta für Windows herunterladen." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111827'/%3E%3Cpath d='M20 22h14v14H20zM36 22h8v14h-8zM20 38h8v4h6v-4h10v6h-8v4h-6v-4h-2v6h-8z' fill='%234ade80'/%3E%3C/svg%3E" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        ink: '#0b1020',
+        panel: '#151d33',
+        line: '#26314f',
+        muted: '#93a0bb',
+        accent: '#4ade80',
+        blurple: '#a5b4fc',
+      },
+      boxShadow: {
+        glow: '0 20px 60px -12px rgba(74,222,128,.45)',
+      }
+    }
+  }
+}
+</script>
+<style>
+  body { background:#0b1020; }
+  .hero-grid {
+    background-image:
+      radial-gradient(600px 300px at 20% 0%, rgba(74,222,128,.12), transparent),
+      radial-gradient(700px 340px at 85% 10%, rgba(165,180,252,.14), transparent);
+  }
+  details > summary { list-style:none; cursor:pointer; }
+  details > summary::-webkit-details-marker { display:none; }
+  details[open] .chev { transform: rotate(180deg); }
+  .chev { transition: transform .2s; }
+</style>
 </head>
-<body>
-<header class="nav"><div class="brand"><span class="mark">S</span> SiteSmith</div><a class="link" href="https://github.com/Lokrogaming/web-templates">Templates-Repo</a></header>
-<main class="hero">
-  <p class="kicker">Website-Templates · Marketplace + Desktop-App</p>
-  <h1>Website-Templates installieren – <span>als .zip oder per Workflow.</span></h1>
-  <p class="sub">Zwei Wege: <b>1.</b> Template als <b>.zip laden</b>, entpacken &amp; selbst deployen (für Erfahrene). <b>2.</b> <b>SiteSmith-App</b>: browsen, auf Wunsch automatisch als GitHub-Repo anlegen, Pages verknüpfen &amp; lokal previewen (empfohlen).</p>
-  <div class="cta">
-    <!-- Absichtlich deaktiviert, bis die App ordentlich aufgesetzt & getestet ist -->
-    <button id="dlBtn" disabled title="Bald verfügbar – SiteSmith wird gerade aufgesetzt.">SiteSmith herunterladen (bald verfügbar)</button>
-    <p class="note">Download aktuell deaktiviert – die App wird gerade aufgesetzt. Templates gibt's schon im <a href="https://github.com/Lokrogaming/web-templates">web-templates Repo</a> (templates.json + /templates/*.zip, je mit .temp-config).</p>
+<body class="text-slate-100 antialiased">
+
+<!-- NAV -->
+<header class="sticky top-0 z-50 border-b border-line bg-ink/85 backdrop-blur">
+  <div class="mx-auto flex max-w-6xl items-center gap-4 px-5 py-3">
+    <a href="#top" class="flex items-center gap-2.5 font-extrabold tracking-tight">
+      <span class="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-accent to-blurple font-black text-ink">S</span>
+      <span>SiteSmith <span class="ml-1 rounded-full border border-accent/50 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-accent">Beta</span></span>
+    </a>
+    <nav class="ml-6 hidden items-center gap-5 text-sm text-muted md:flex">
+      <a href="#features" class="hover:text-white">Features</a>
+      <a href="#workflow" class="hover:text-white">So geht's</a>
+      <a href="#system" class="hover:text-white">System</a>
+      <a href="#faq" class="hover:text-white">FAQ</a>
+      <a href="https://github.com/Lokrogaming/web-templates" class="hover:text-white">Templates</a>
+    </nav>
+    <div class="ml-auto flex items-center gap-2">
+      <a href="https://github.com/Lokrogaming/web-template-studio" class="hidden rounded-lg border border-line px-3 py-2 text-sm text-muted hover:text-white sm:block">GitHub</a>
+      <a href="#download" class="rounded-lg bg-accent px-4 py-2 text-sm font-bold text-ink hover:brightness-110">Download</a>
+    </div>
   </div>
-  <div class="grid">
-    <div class="card"><h3>📦 .zip-Weg</h3><p>Zip aus dem Template-Repo laden, entpacken, deployen. Anleitungen stehen im Detail-Panel der App.</p></div>
-    <div class="card"><h3>✨ Workflow-Weg</h3><p>SiteSmith prüft GitHub-Login &amp; Node/npm, erstellt ein (umbenennbares) Repo inkl. README mit Deploy-Anleitung, verknüpft Pages bei HTML und startet eine localhost-Preview.</p></div>
-    <div class="card"><h3>✅ Verifiziert</h3><p>Templates mit <code>"verified": true</code> in <code>templates.json</code> tragen in der App ein Icon.</p></div>
-  </div>
-  <h2>So geht's (kurz)</h2>
-  <ol>
-    <li>SiteSmith öffnen → Template wählen → <b>Install Template</b> → „Willst du diese Vorlage nutzen?“</li>
-    <li>Entweder <b>.zip laden (Für Erfahrene)</b> oder <b>Per Workflow automatisieren (empfohlen)</b>.</li>
-    <li>Bei Workflow: ggf. GitHub-Token anmelden, Repo-Namen anpassen, installieren, Preview starten.</li>
-  </ol>
+</header>
+
+<!-- HERO -->
+<main id="top" class="hero-grid">
+  <section class="mx-auto max-w-6xl px-5 pb-10 pt-14 text-center md:pt-20">
+    <p class="mx-auto inline-flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-accent">
+      <span class="h-2 w-2 animate-pulse rounded-full bg-accent"></span>
+      Beta v0.2.0 · jetzt für Windows
+    </p>
+    <h1 class="mx-auto mt-5 max-w-3xl text-4xl font-black leading-tight tracking-tight md:text-6xl">
+      Website-Templates installieren – <span class="bg-gradient-to-r from-accent to-blurple bg-clip-text text-transparent">per Klick.</span>
+    </h1>
+    <p class="mx-auto mt-4 max-w-2xl text-base text-muted md:text-lg">
+      SiteSmith ist dein Template-Marketplace als Desktop-App: stöbern, <b class="text-slate-200">per Workflow</b> automatisch als GitHub-Repo anlegen + Pages verknüpfen + lokal previewen – oder klassisch als <b class="text-slate-200">.zip</b> laden.
+    </p>
+
+    <!-- BIG DOWNLOAD -->
+    <div id="download" class="mx-auto mt-9 max-w-2xl scroll-mt-24">
+      <a id="mainDl"
+         href="https://github.com/Lokrogaming/web-template-studio/releases/download/v0.2.0-beta/SiteSmith.Setup.0.2.0.exe"
+         class="group flex items-center justify-center gap-4 rounded-2xl bg-gradient-to-r from-accent to-emerald-300 px-8 py-6 text-left shadow-glow transition hover:scale-[1.02] hover:brightness-110 active:scale-[0.99]">
+        <span class="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-ink/90">
+          <!-- Windows logo -->
+          <svg viewBox="0 0 24 24" class="h-8 w-8 fill-white" aria-hidden="true"><path d="M3 5.5 10.5 4.5V11H3zM11.5 4.3 21 3v8h-9.5zM3 12h7.5v6.5L3 17.5zM11.5 12H21v8l-9.5-1.3z"/></svg>
+        </span>
+        <span class="flex-1">
+          <span class="block text-2xl font-black leading-none text-ink md:text-3xl">Download for Windows</span>
+          <span id="dlSub" class="mt-1.5 block text-sm font-semibold text-ink/70">Beta v0.2.0 · Setup (.exe) · ~76 MB · Windows 10/11 64-bit</span>
+        </span>
+        <svg class="h-8 w-8 shrink-0 text-ink transition group-hover:translate-y-1" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v12m0 0 5-5m-5 5-5-5M4 20h16"/></svg>
+      </a>
+      <div class="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-muted">
+        <a class="underline decoration-dotted underline-offset-4 hover:text-white" href="https://github.com/Lokrogaming/web-template-studio/releases/download/v0.2.0-beta/SiteSmith.0.2.0.exe">Portable (.exe, ohne Installation)</a>
+        <a class="underline decoration-dotted underline-offset-4 hover:text-white" href="https://github.com/Lokrogaming/web-template-studio/releases/tag/v0.2.0-beta">Release Notes</a>
+        <a class="underline decoration-dotted underline-offset-4 hover:text-white" href="https://github.com/Lokrogaming/web-template-studio">Quellcode</a>
+      </div>
+      <p class="mx-auto mt-3 max-w-xl text-xs leading-relaxed text-muted/80">
+        Direkter GitHub-Releases-Download – keine Anmeldung, kein Installer-Spam. Bei SmartScreen: „Weitere Infos → Trotzdem ausführen“ (Beta ist noch nicht signiert).
+      </p>
+    </div>
+
+    <!-- STATS -->
+    <dl class="mx-auto mt-10 grid max-w-3xl grid-cols-3 gap-3">
+      <div class="rounded-2xl border border-line bg-panel/70 px-4 py-5"><dt class="text-xs uppercase tracking-wider text-muted">Wege</dt><dd class="mt-1 text-2xl font-black">2</dd><dd class="text-xs text-muted">Workflow oder .zip</dd></div>
+      <div class="rounded-2xl border border-line bg-panel/70 px-4 py-5"><dt class="text-xs uppercase tracking-wider text-muted">Setup</dt><dd class="mt-1 text-2xl font-black">~2 Min</dd><dd class="text-xs text-muted">Download → Install → Start</dd></div>
+      <div class="rounded-2xl border border-line bg-panel/70 px-4 py-5"><dt class="text-xs uppercase tracking-wider text-muted">Kosten</dt><dd class="mt-1 text-2xl font-black">0 €</dd><dd class="text-xs text-muted">Beta ist gratis</dd></div>
+    </dl>
+  </section>
+
+  <!-- FEATURES -->
+  <section id="features" class="mx-auto max-w-6xl scroll-mt-20 px-5 py-12">
+    <h2 class="text-center text-3xl font-black tracking-tight">Alles drin, nichts dran.</h2>
+    <p class="mt-2 text-center text-muted">Sechs Gründe, warum SiteSmith dir Zeit spart.</p>
+    <div class="mt-8 grid gap-3 md:grid-cols-3">
+      <article class="rounded-2xl border border-line bg-panel p-6"><div class="text-2xl">🏪</div><h3 class="mt-2 font-bold">Marketplace-Browser</h3><p class="mt-1 text-sm text-muted">Templates mit Preview-Bild, Stack-Badges, Deploy-Indikatoren und Suche – wie ein App-Store für Websites.</p></article>
+      <article class="rounded-2xl border border-accent/50 bg-panel p-6 shadow-glow"><div class="text-2xl">✨</div><h3 class="mt-2 font-bold">Workflow <span class="text-accent">(empfohlen)</span></h3><p class="mt-1 text-sm text-muted">GitHub-Login → Repo-Name wählen → installieren: Repo + README mit Deploy-Anleitung, Pages-Link bei HTML, localhost-Preview.</p></article>
+      <article class="rounded-2xl border border-line bg-panel p-6"><div class="text-2xl">📦</div><h3 class="mt-2 font-bold">.zip für Profis</h3><p class="mt-1 text-sm text-muted">Jedes Template auch roh als .zip aus dem web-templates Repo – entpacken, selbst deployen, fertig.</p></article>
+      <article class="rounded-2xl border border-line bg-panel p-6"><div class="text-2xl">👁️</div><h3 class="mt-2 font-bold">Echte Previews</h3><p class="mt-1 text-sm text-muted">Statische Templates direkt, Node-Templates werden automatisch gebaut (npm install + build, dist/ wird serviert).</p></article>
+      <article class="rounded-2xl border border-line bg-panel p-6"><div class="text-2xl">✅</div><h3 class="mt-2 font-bold">Verifiziert-Icon</h3><p class="mt-1 text-sm text-muted">Templates mit <code class="rounded bg-black/40 px-1.5 py-0.5 text-xs">"verified": true</code> tragen in der App ein Vertrauens-Icon.</p></article>
+      <article class="rounded-2xl border border-line bg-panel p-6"><div class="text-2xl">🛠️</div><h3 class="mt-2 font-bold">Node-Auto-Setup</h3><p class="mt-1 text-sm text-muted">Kein Node? SiteSmith lädt das offizielle LTS-Zip lokal nach (ohne Admin, ohne PATH-Eingriff) und nutzt es automatisch.</p></article>
+    </div>
+  </section>
+
+  <!-- WORKFLOW -->
+  <section id="workflow" class="mx-auto max-w-6xl scroll-mt-20 px-5 py-12">
+    <div class="rounded-3xl border border-line bg-panel p-8 md:p-12">
+      <h2 class="text-2xl font-black md:text-3xl">In 3 Schritten zur eigenen Website</h2>
+      <ol class="mt-6 grid gap-4 md:grid-cols-3">
+        <li class="rounded-2xl bg-ink/60 p-5"><p class="text-xs font-bold uppercase tracking-widest text-accent">1 · Download</p><p class="mt-2 font-bold">App installieren & starten</p><p class="mt-1 text-sm text-muted">Oben auf <b>Download for Windows</b> klicken, Setup ausführen, SiteSmith öffnen.</p></li>
+        <li class="rounded-2xl bg-ink/60 p-5"><p class="text-xs font-bold uppercase tracking-widest text-accent">2 · Wählen</p><p class="mt-2 font-bold">Template → Install Template</p><p class="mt-1 text-sm text-muted">Im Dialog <b>Per Workflow automatisieren</b> wählen (.zip geht auch, für Erfahrene).</p></li>
+        <li class="rounded-2xl bg-ink/60 p-5"><p class="text-xs font-bold uppercase tracking-widest text-accent">3 · Deployen</p><p class="mt-2 font-bold">Repo + Pages + Preview</p><p class="mt-1 text-sm text-muted">Repo-Name anpassen, ggf. GitHub anmelden, installieren, Preview starten. Fertig.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- SYSTEM -->
+  <section id="system" class="mx-auto max-w-6xl scroll-mt-20 px-5 py-12">
+    <h2 class="text-center text-3xl font-black tracking-tight">Systemvoraussetzungen</h2>
+    <div class="mx-auto mt-6 grid max-w-4xl gap-3 md:grid-cols-2">
+      <div class="rounded-2xl border border-line bg-panel p-6">
+        <h3 class="font-bold">🖥️ Minimum</h3>
+        <ul class="mt-3 space-y-2 text-sm text-muted">
+          <li>✔ Windows 10 / 11, 64-bit</li>
+          <li>✔ ~300 MB freier Speicher (App + Installer)</li>
+          <li>✔ Internet (Templates + GitHub-API)</li>
+          <li class="text-muted/70">○ GitHub-Account nur für Workflow-Repo-Erstellung nötig</li>
+          <li class="text-muted/70">○ Node.js optional – wird sonst automatisch eingerichtet</li>
+        </ul>
+      </div>
+      <div class="rounded-2xl border border-line bg-panel p-6">
+        <h3 class="font-bold">⚠️ Beta-Hinweise</h3>
+        <ul class="mt-3 space-y-2 text-sm text-muted">
+          <li>• Installer ist <b class="text-slate-200">noch nicht code-signiert</b> → SmartScreen-Warnung mit „Weitere Infos → Trotzdem ausführen“ bestätigen.</li>
+          <li>• Version <b class="text-slate-200">v0.2.0-beta</b> – Feedback & Bugs bitte als <a class="text-blurple underline" href="https://github.com/Lokrogaming/web-template-studio/issues">GitHub-Issue</a> melden.</li>
+          <li>• Updates aktuell manuell: neue Beta von dieser Seite laden.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq" class="mx-auto max-w-3xl scroll-mt-20 px-5 py-12">
+    <h2 class="text-center text-3xl font-black tracking-tight">Fragen?</h2>
+    <div class="mt-6 space-y-3">
+      <details class="rounded-2xl border border-line bg-panel p-5" open>
+        <summary class="flex items-center justify-between font-bold">Ist die Beta kostenlos? <span class="chev text-accent">▾</span></summary>
+        <p class="mt-2 text-sm text-muted">Ja. SiteSmith-Beta, alle Templates und der Workflow sind gratis. Du brauchst höchstens einen kostenlosen GitHub-Account, wenn du automatisch Repos erstellen willst.</p>
+      </details>
+      <details class="rounded-2xl border border-line bg-panel p-5">
+        <summary class="flex items-center justify-between font-bold">Setup oder Portable – was nehmen? <span class="chev text-accent">▾</span></summary>
+        <p class="mt-2 text-sm text-muted">Setup installiert SiteSmith mit Startmenü-Eintrag (empfohlen). Portable läuft ohne Installation – z. B. vom USB-Stick oder zum schnellen Testen.</p>
+      </details>
+      <details class="rounded-2xl border border-line bg-panel p-5">
+        <summary class="flex items-center justify-between font-bold">Windows warnt vor der Installation – ist das normal? <span class="chev text-accent">▾</span></summary>
+        <p class="mt-2 text-sm text-muted">Ja, in der Beta: Der Installer ist noch nicht mit einem kostenpflichtigen Zertifikat signiert. Klicke bei SmartScreen auf „Weitere Informationen“ → „Trotzdem ausführen“. Der Download kommt direkt von GitHub-Releases, Hash steht in den Release Notes.</p>
+      </details>
+      <details class="rounded-2xl border border-line bg-panel p-5">
+        <summary class="flex items-center justify-between font-bold">Woher kommen die Templates? <span class="chev text-accent">▾</span></summary>
+        <p class="mt-2 text-sm text-muted">Aus dem Repo <a class="text-blurple underline" href="https://github.com/Lokrogaming/web-templates">Lokrogaming/web-templates</a> (templates/*.zip + templates.json-Mapping mit verified-Flag und .temp-config je Template).</p>
+      </details>
+      <details class="rounded-2xl border border-line bg-panel p-5">
+        <summary class="flex items-center justify-between font-bold">Brauche ich Node.js oder Git? <span class="chev text-accent">▾</span></summary>
+        <p class="mt-2 text-sm text-muted">Nein, nicht zwingend. Fehlt Node (min. v20), bietet SiteSmith ein lokales Auto-Setup an. Git-Operationen laufen über die GitHub-API mit deinem Login-Token.</p>
+      </details>
+    </div>
+    <!-- SECOND CTA -->
+    <div class="mt-10 rounded-3xl border border-accent/40 bg-gradient-to-br from-panel to-ink p-8 text-center">
+      <h3 class="text-2xl font-black">Bereit? Hol dir die Beta.</h3>
+      <p class="mt-1 text-sm text-muted">Ein Klick, ~76 MB, zwei Minuten später browsest du Templates.</p>
+      <a href="https://github.com/Lokrogaming/web-template-studio/releases/download/v0.2.0-beta/SiteSmith.Setup.0.2.0.exe"
+         class="mx-auto mt-5 flex max-w-md items-center justify-center gap-3 rounded-2xl bg-accent px-8 py-5 text-xl font-black text-ink shadow-glow transition hover:scale-[1.02] hover:brightness-110">
+        <svg viewBox="0 0 24 24" class="h-7 w-7 fill-ink" aria-hidden="true"><path d="M3 5.5 10.5 4.5V11H3zM11.5 4.3 21 3v8h-9.5zM3 12h7.5v6.5L3 17.5zM11.5 12H21v8l-9.5-1.3z"/></svg>
+        Download for Windows
+      </a>
+    </div>
+  </section>
 </main>
-<footer>© 2026 Lokrogaming · <a href="https://github.com/Lokrogaming/web-template-studio">App-Repo</a> · <a href="https://github.com/Lokrogaming/web-templates">Templates</a></footer>
+
+<footer class="border-t border-line">
+  <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-6 text-sm text-muted">
+    <span>© 2026 Lokrogaming · SiteSmith Beta v0.2.0</span>
+    <nav class="flex gap-4">
+      <a class="hover:text-white" href="https://github.com/Lokrogaming/web-template-studio">App-Repo</a>
+      <a class="hover:text-white" href="https://github.com/Lokrogaming/web-templates">Templates</a>
+      <a class="hover:text-white" href="https://github.com/Lokrogaming/web-template-studio/releases">Alle Releases</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+// Optional: Live-Version aus GitHub-API nachladen (Fallback bleibt statisch v0.2.0-beta)
+(function () {
+  var TAG = 'v0.2.0-beta';
+  fetch('https://api.github.com/repos/Lokrogaming/web-template-studio/releases/tags/' + TAG)
+    .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+    .then(function (rel) {
+      var setup = (rel.assets || []).find(function (a) { return /setup.*\.exe$/i.test(a.name); });
+      if (setup) {
+        document.getElementById('mainDl').href = setup.browser_download_url;
+        var mb = (setup.size / 1048576).toFixed(0);
+        document.getElementById('dlSub').textContent = 'Beta ' + rel.tag_name + ' · Setup (.exe) · ~' + mb + ' MB · Windows 10/11 64-bit · ' + (rel.assets.reduce(function(n,a){return n+a.download_count;},0)) + ' Downloads';
+      }
+    })
+    .catch(function () {});
+})();
+</script>
 </body>
 </html>
